@@ -1,0 +1,71 @@
+#!/bin/sh
+# tghpm - TAGCHAOS OS Package Manager (POSIX Shell)
+
+APPS_DIR="/root/.tgh/apps"
+CACHE_DIR="/root/.tgh/cache"
+
+mkdir -p "$APPS_DIR" "$CACHE_DIR"
+
+show_help() {
+    echo "=========================================="
+    echo "  TAGCHAOS Package Manager (tghpm) v1.0   "
+    echo "=========================================="
+    echo "Kullanım:"
+    echo "  tghpm install <paket.tgh | .exe>"
+    echo "  tghpm list"
+    echo "  tghpm demo"
+}
+
+cmd="$1"
+shift
+
+case "$cmd" in
+    --help|-h|"")
+        show_help
+        ;;
+    demo)
+        echo "[*] Demo paket yükleniyor..."
+        mkdir -p "$APPS_DIR/demo-app"
+        echo "Active=true" > "$APPS_DIR/demo-app/manifest.ini"
+        echo "[+] Demo başarılı! ($APPS_DIR/demo-app)"
+        ;;
+    list)
+        echo "[*] Yüklü paketler:"
+        ls -1 "$APPS_DIR" 2>/dev/null || echo "Hiç paket yok."
+        ;;
+    install)
+        target="$1"
+        if [ -z "$target" ]; then
+            echo "[!] Hata: Kurulacak dosya belirtilmedi."
+            exit 1
+        fi
+        
+        pkg_name=$(basename "$target")
+        ext="${pkg_name##*.}"
+        
+        echo "[*] İşleniyor: $target (Tür: .$ext)"
+        
+        case "$ext" in
+            exe)
+                echo "[*] Windows (.exe) algılandı. Wine prefix yönlendirmesi hazırlanıyor..."
+                mkdir -p "$APPS_DIR/$pkg_name"
+                echo "exec_type=wine" > "$APPS_DIR/$pkg_name/config"
+                echo "file=$target" >> "$APPS_DIR/$pkg_name/config"
+                echo "[+] Wine uygulaması kuyruğa eklendi."
+                ;;
+            tgh|*)
+                echo "[*] Native .tgh paket açılıyor..."
+                extract_dir="$APPS_DIR/${pkg_name%.*}"
+                mkdir -p "$extract_dir"
+                # Arşiv simülasyonu/kopyalama
+                [ -f "$target" ] && cp "$target" "$extract_dir/"
+                echo "[+] Paket kuruldu -> $extract_dir"
+                ;;
+        esac
+        ;;
+    *)
+        echo "[!] Bilinmeyen komut: $cmd"
+        show_help
+        exit 1
+        ;;
+esac
