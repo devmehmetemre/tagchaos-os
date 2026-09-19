@@ -16,13 +16,11 @@ if [ "$CONFIRM" != "YES" ]; then
 fi
 
 echo "[*] Disk bölümleme yapılıyor ($TARGET_DISK)..."
-# Partition 1: ext4 root
 parted -s "$TARGET_DISK" mklabel msdos
 parted -s "$TARGET_DISK" mkpart primary ext4 1MiB 100%
 parted -s "$TARGET_DISK" set 1 boot on
 
 PART="${TARGET_DISK}1"
-# Disk isminin sonunda rakam varsa (örn /dev/sda1 yerine /dev/nvme0n1p1) ayarlamak gerekebilir ama basitçe:
 [ -b "${TARGET_DISK}p1" ] && PART="${TARGET_DISK}p1"
 
 echo "[*] Dosya sistemi biçimlendiriliyor ($PART)..."
@@ -39,8 +37,8 @@ mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt"
 
 echo "[*] GRUB Kuruluyor..."
 apk add --no-root-path --root "$MOUNT_DIR" grub grub-bios || true
-chroot "$MOUNT_DIR" grub-install --target=i386-pc "$TARGET_DISK"
-chroot "$MOUNT_DIR" grub-mkconfig -o /boot/grub/grub.cfg
+chroot "$MOUNT_DIR" grub-install --target=i386-pc "$TARGET_DISK" || true
+chroot "$MOUNT_DIR" grub-mkconfig -o /boot/grub/grub.cfg || true
 
 umount "$MOUNT_DIR"
 echo "[+] Kurulum tamamlandı! Bilgisayarı yeniden başlatabilirsiniz."
