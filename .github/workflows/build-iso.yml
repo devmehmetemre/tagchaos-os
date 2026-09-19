@@ -44,6 +44,11 @@ jobs:
           # Kernel sürümünü bul ve initramfs üret
           LTS_VER=$(ls build-root/rootfs/lib/modules | tail -n 1)
           sudo chroot build-root/rootfs mkinitfs -o /boot/initramfs-lts "$LTS_VER"
+
+          # Temizlik: APK cache budama
+          sudo chroot build-root/rootfs apk cache clean || true
+          sudo rm -rf build-root/rootfs/var/cache/apk/*
+
           sudo umount build-root/rootfs/proc build-root/rootfs/sys build-root/rootfs/dev
 
           # Kernel ve initramfs ISO boot dizinine taşı
@@ -75,11 +80,11 @@ jobs:
           echo "=========================================="
           exec /bin/sh
           EOF
-          sudo chmod +x build-root/rootfs/init
+          sudo chmod 755 build-root/rootfs/init
 
-          # Canlı ortam / Initramfs birleştirme
+          # Canlı ortam / Initramfs cpio root paketleme (Kernel panik çözümü)
           sudo rm -f build-root/iso/boot/initramfs-lts
-          sudo bash -c 'cd build-root/rootfs && find . | cpio -o -H newc 2>/dev/null | gzip > ../iso/boot/initrd.img'
+          sudo bash -c 'cd build-root/rootfs && find . -print0 | cpio --null -o -H newc --owner=0:0 | gzip > ../iso/boot/initrd.img'
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
