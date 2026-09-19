@@ -15,9 +15,9 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso squashfs-tools wget curl parted grub-pc-bin grub-common mtools
+          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip
 
-      - name: Temel ve Gerçek Kernel Entegrasyonu
+      - name: Initramfs ve ISO Hazırlığı
         run: |
           set -e
           mkdir -p build-root/rootfs/boot build-root/iso/boot/grub dist
@@ -29,62 +29,49 @@ jobs:
           rm alpine.tar.gz
 
           echo "[*] Kernel indiriliyor..."
-          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/vmlinuz-virt" -O build-root/rootfs/boot/vmlinuz-virt
-          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/initramfs-virt" -O build-root/rootfs/boot/initramfs-virt
+          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/vmlinuz-virt" -O build-root/iso/boot/vmlinuz-virt
 
           cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
 
-          # Kesin kopyalama ve kontrol
           mkdir -p build-root/rootfs/usr/local/bin
-          ls -la tghpm || echo "[!] Kök dizinde tghpm yok!"
           cp -v tghpm build-root/rootfs/usr/local/bin/tghpm
           chmod +x build-root/rootfs/usr/local/bin/tghpm
           
-          ls -la tgh-install || echo "[!] Kök dizinde tgh-install yok!"
           cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
           chmod +x build-root/rootfs/usr/local/bin/tgh-install
 
           mkdir -p build-root/rootfs/root/.tgh/apps build-root/rootfs/root/.tgh/cache
 
-          # Güçlendirilmiş init script
           cat << 'EOF' > build-root/rootfs/init
           #!/bin/sh
           mount -t proc none /proc
           mount -t sysfs none /sys
+          mount -t devtmpfs none /dev 2>/dev/null || true
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
           clear
           echo "=========================================="
-          echo "    TAGCHAOS OS (Shell-Native) v0.4       "
+          echo "    TAGCHAOS OS (Shell-Native) v1.0       "
           echo "    Kurulum için: tgh-install /dev/sdX    "
           echo "=========================================="
-
-          if [ -x /usr/local/bin/tghpm ]; then
-              /usr/local/bin/tghpm demo
-          else
-              echo "[!] /usr/local/bin/tghpm bulunamadı veya çalıştırılabilir değil!"
-              ls -la /usr/local/bin/
-          fi
-
+          tghpm demo
           exec /bin/sh
           EOF
           chmod +x build-root/rootfs/init
 
-          echo "[*] Rootfs squashfs sıkıştırılıyor..."
-          mksquashfs build-root/rootfs build-root/iso/rootfs.sfs -comp xz -no-progress
-          
-          cp build-root/rootfs/boot/vmlinuz-virt build-root/iso/boot/
-          cp build-root/rootfs/boot/initramfs-virt build-root/iso/boot/
+          echo "[*] CPIO.gz initramfs paketleniyor..."
+          cd build-root/rootfs
+          find . | cpio -o -H newc 2>/dev/null | gzip > ../iso/boot/initramfs.gz
+          cd ../..
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
           set -e
-          mkdir -p build-root/iso/boot/grub
           cat << 'EOF' > build-root/iso/boot/grub/grub.cfg
           set timeout=3
           set default=0
-          menuentry "TAGCHAOS OS (Live/Installer)" {
-              linux /boot/vmlinuz-virt ip=dhcp quiet
-              initrd /boot/initramfs-virt
+          menuentry "TAGCHAOS OS (Shell-Native)" {
+              linux /boot/vmlinuz-virt quiet
+              initrd /boot/initramfs.gz
           }
           EOF
 
