@@ -1,17 +1,24 @@
 #!/bin/sh
 set -e
-TARGET_DISK=$1
-[ -z "$TARGET_DISK" ] && { echo "[!] Kullanım: tgh-install /dev/hedef_disk"; exit 1; }
 
+TARGET_DISK=""
+for d in /dev/sd* /dev/vd* /dev/nvme0n1; do
+    [ -b "$d" ] && { TARGET_DISK="$d"; break; }
+done
+
+[ -z "$TARGET_DISK" ] && { echo "[!] Hiçbir hedef disk bulunamadı!"; exit 1; }
+
+echo "[*] Bulunan hedef disk: $TARGET_DISK"
 echo "[*] UYARI: $TARGET_DISK silinecek! Devam için 'YES' yazın:"
 read CONFIRM
 [ "$CONFIRM" != "YES" ] && { echo "İptal."; exit 0; }
 
-# fdisk üzerinden MBR primary bootable partition oluşturma
 printf "o\nn\np\n1\n\n\na\n1\nw\n" | fdisk "$TARGET_DISK" || true
 
 PART="${TARGET_DISK}1"
-[ -b "${TARGET_DISK}p1" ] && PART="${TARGET_DISK}p1"
+case "$TARGET_DISK" in
+    *nvme*) PART="${TARGET_DISK}p1" ;;
+esac
 
 mkfs.ext4 -F "$PART"
 
@@ -21,5 +28,14 @@ mount "$PART" "$MOUNT_DIR"
 cp -a / * "$MOUNT_DIR" 2>/dev/null || true
 rm -rf "$MOUNT_DIR/mnt/*" "$MOUNT_DIR/proc/*" "$MOUNT_DIR/sys/*" "$MOUNT_DIR/dev/*"
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt"
+
+# Hedef sisteme GRUB BIOS kurulumu
+mount --bind /dev "$MOUNT_DIR/dev"
+mount --bind /proc "$MOUNT_DIR/proc"
+mount --bind /sys "$MOUNT_DIR/sys"
+chroot "$MOUNT_DIR" grub-install --target=i386-pc "$TARGET_DISK" || true
+chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=/dev/sda1 ro; initrd /boot/initrd.img; }' >> /boot/grub/grub.cfg" || true
+umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
+
 umount "$MOUNT_DIR"
-echo "[+] Kurulum tamamlandı!"
+echo "[+] Gerçek donanım kurulumu tamamlandı!"
