@@ -20,7 +20,7 @@ jobs:
       - name: Rootfs ve LTS Kernel Hazırlığı
         run: |
           set -e
-          sudo mkdir -p build-root/rootfs/boot build-root/iso/boot/grub dist
+          mkdir -p build-root/rootfs/boot build-root/iso/boot/grub dist
           
           ALPINE_VER="3.20.3"
           echo "[*] Alpine minirootfs indiriliyor..."
@@ -29,10 +29,10 @@ jobs:
           rm alpine.tar.gz
 
           sudo cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
-          cat << 'EOF' > build-root/rootfs/etc/apk/repositories
+          sudo bash -c 'cat << 'EOF' > build-root/rootfs/etc/apk/repositories
           https://dl-cdn.alpinelinux.org/alpine/v3.20/main
           https://dl-cdn.alpinelinux.org/alpine/v3.20/community
-          EOF
+          EOF'
 
           # Donanım sürücüleri, LTS kernel ve mkinitfs mühürle
           sudo mount --bind /proc build-root/rootfs/proc
@@ -55,14 +55,16 @@ jobs:
           sudo cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
           sudo chmod +x build-root/rootfs/usr/local/bin/tgh-install
 
+          sudo mkdir -p build-root/rootfs/root/.tgh/apps build-root/rootfs/root/.tgh/cache
+
           # Temel init script
-          cat << 'EOF' > build-root/rootfs/init
+          sudo tee build-root/rootfs/init << 'EOF'
           #!/bin/sh
-          sudo mount -t proc none /proc
-          sudo mount -t sysfs none /sys
-          sudo mount -t devtmpfs none /dev 2>/dev/null || true
-          sudo mkdir -p /dev/pts
-          sudo mount -t devpts devpts /dev/pts 2>/dev/null || true
+          mount -t proc none /proc
+          mount -t sysfs none /sys
+          mount -t devtmpfs none /dev 2>/dev/null || true
+          mkdir -p /dev/pts
+          mount -t devpts devpts /dev/pts 2>/dev/null || true
           mdev -s 2>/dev/null || true
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
           
@@ -73,15 +75,11 @@ jobs:
           echo "=========================================="
           exec /bin/sh
           EOF
-          chmod +x build-root/rootfs/init
+          sudo chmod +x build-root/rootfs/init
 
-          # Canlı ortam / Initramfs birleştirme veya kök entegrasyonu
-          # Live/Install ISO kökünü oluşturmak için rootfs içeriğini ISO'ya veya initramfs'e aktar
-          # Basitlik için tüm rootfs'i cpio.gz live initrd yapıyoruz:
-          rm -f build-root/iso/boot/initramfs-lts
-          cd build-root/rootfs
-          find . | cpio -o -H newc 2>/dev/null | gzip > ../iso/boot/initrd.img
-          cd ../..
+          # Canlı ortam / Initramfs birleştirme
+          sudo rm -f build-root/iso/boot/initramfs-lts
+          sudo bash -c 'cd build-root/rootfs && find . | cpio -o -H newc 2>/dev/null | gzip > ../iso/boot/initrd.img'
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
@@ -95,7 +93,7 @@ jobs:
           }
           EOF
 
-          sudo mkdir -p dist
+          mkdir -p dist
           grub-mkrescue -o dist/tagchaos-os-installable.iso build-root/iso
 
       - name: Yapıtları Kaydet
