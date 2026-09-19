@@ -15,26 +15,25 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso squashfs-tools wget curl parted
+          sudo apt-get install -y xorriso squashfs-tools wget curl parted grub-pc-bin grub-common mtools
 
       - name: Temel ve Gerçek Kernel Entegrasyonu
         run: |
+          set -e
           mkdir -p build-root/rootfs/boot build-root/iso/boot/grub dist
           
-          # Alpine Minirootfs indir
           ALPINE_VER="3.20.3"
-          wget "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-${ALPINE_VER}-x86_64.tar.gz" -O alpine.tar.gz
+          echo "[*] Alpine minirootfs indiriliyor..."
+          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-${ALPINE_VER}-x86_64.tar.gz" -O alpine.tar.gz
           tar -xzf alpine.tar.gz -C build-root/rootfs
           rm alpine.tar.gz
 
-          # Alpine Kernel (vmlinuz-virt ve initramfs-virt) indir
-          # Not: musl/alpine repo index'ten kernel çekme simülasyonu / doğrudan alpine repo çekirdeği
-          wget "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/vmlinuz-virt" -O build-root/rootfs/boot/vmlinuz-virt
-          wget "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/initramfs-virt" -O build-root/rootfs/boot/initramfs-virt
+          echo "[*] Kernel indiriliyor..."
+          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/vmlinuz-virt" -O build-root/rootfs/boot/vmlinuz-virt
+          wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/initramfs-virt" -O build-root/rootfs/boot/initramfs-virt
 
           cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
 
-          # tghpm ve tgh-install ekle
           mkdir -p build-root/rootfs/usr/local/bin
           cp tghpm.py build-root/rootfs/usr/local/bin/tghpm
           chmod +x build-root/rootfs/usr/local/bin/tghpm
@@ -44,7 +43,6 @@ jobs:
 
           mkdir -p build-root/rootfs/root/.tgh/apps build-root/rootfs/root/.tgh/cache
 
-          # Init script
           cat << 'EOF' > build-root/rootfs/init
           #!/bin/sh
           mount -t proc none /proc
@@ -59,15 +57,16 @@ jobs:
           EOF
           chmod +x build-root/rootfs/init
 
-          # Rootfs Squashfs
-          mksquashfs build-root/rootfs build-root/iso/rootfs.sfs -comp xz
+          echo "[*] Rootfs squashfs sıkıştırılıyor..."
+          mksquashfs build-root/rootfs build-root/iso/rootfs.sfs -comp xz -no-progress
           
-          # Çekirdekleri ISO boot dizinine taşı
           cp build-root/rootfs/boot/vmlinuz-virt build-root/iso/boot/
           cp build-root/rootfs/boot/initramfs-virt build-root/iso/boot/
 
-      - name: GRUB Konfigürasyonu
+      - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
+          set -e
+          mkdir -p build-root/iso/boot/grub
           cat << 'EOF' > build-root/iso/boot/grub/grub.cfg
           set timeout=3
           set default=0
@@ -77,14 +76,16 @@ jobs:
           }
           EOF
 
-      - name: Bootable ISO İmajı Oluştur
-        run: |
-          xorriso -as mkisofs -iso-level 3 -o dist/tagchaos-os-installable.iso \
-            -b boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 -boot-info-table \
-            build-root/iso || echo "[*] ISO iskelet/hybrid paketlendi."
+          echo "[*] ISO dizineri kontrol ediliyor:"
+          ls -la build-root/iso/boot/
+
+          mkdir -p dist
+          echo "[*] grub-mkrescue çalıştırılıyor..."
+          grub-mkrescue -o dist/tagchaos-os-installable.iso build-root/iso
+          ls -la dist/
 
       - name: Yapıtları Kaydet
         uses: actions/upload-artifact@v4
         with:
           name: tagchaos-os-installable
-          path: dist/
+          path: dist/tagchaos-os-installable.iso
