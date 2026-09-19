@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-09-19",
+  "packages": [
+    {
+      "id": "com.tagchaos.browser",
+      "name": "TAG Browser (Win/Lin Hybrid)",
+      "version": "1.0.0",
+      "target": "wine",
+      "exec": "chrome_installer.exe",
+      "url": "https://github.com/devmehmetemre/tagchaos-os/releases/download/v1.0.0/browser.tgh"
+    }
+  ]
+}
