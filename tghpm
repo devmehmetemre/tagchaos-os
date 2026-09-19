@@ -53,11 +53,10 @@ case "$cmd" in
                 echo "file=$target" >> "$APPS_DIR/$pkg_name/config"
                 echo "[+] Wine uygulaması kuyruğa eklendi."
                 ;;
-            tgh|*)
-                echo "[*] Native .tgh paket açılıyor..."
+            *)
+                echo "[*] Native .tgh/.file paket açılıyor..."
                 extract_dir="$APPS_DIR/${pkg_name%.*}"
                 mkdir -p "$extract_dir"
-                # Arşiv simülasyonu/kopyalama
                 [ -f "$target" ] && cp "$target" "$extract_dir/"
                 echo "[+] Paket kuruldu -> $extract_dir"
                 ;;
