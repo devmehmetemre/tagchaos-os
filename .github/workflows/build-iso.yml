@@ -28,7 +28,7 @@ jobs:
           tar -xzf alpine.tar.gz -C build-root/rootfs
           rm alpine.tar.gz
 
-          cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
+          sudo cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
           cat << 'EOF' > build-root/rootfs/etc/apk/repositories
           https://dl-cdn.alpinelinux.org/alpine/v3.20/main
           https://dl-cdn.alpinelinux.org/alpine/v3.20/community
@@ -47,12 +47,12 @@ jobs:
           sudo umount build-root/rootfs/proc build-root/rootfs/sys build-root/rootfs/dev
 
           # Kernel ve initramfs ISO boot dizinine taşı
-          cp build-root/rootfs/boot/vmlinuz-lts build-root/iso/boot/vmlinuz-lts
-          cp build-root/rootfs/boot/initramfs-lts build-root/iso/boot/initramfs-lts
+          sudo cp build-root/rootfs/boot/vmlinuz-lts build-root/iso/boot/vmlinuz-lts
+          sudo cp build-root/rootfs/boot/initramfs-lts build-root/iso/boot/initramfs-lts
 
           # tgh-install ekle
           mkdir -p build-root/rootfs/usr/local/bin
-          cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
+          sudo cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
           chmod +x build-root/rootfs/usr/local/bin/tgh-install
 
           # Temel init script
