@@ -34,16 +34,19 @@ jobs:
 
           cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
 
-          # Saf shell araçlarını rootfs içine entegre et
+          # Kesin kopyalama ve kontrol
           mkdir -p build-root/rootfs/usr/local/bin
-          cp tghpm build-root/rootfs/usr/local/bin/tghpm
+          ls -la tghpm || echo "[!] Kök dizinde tghpm yok!"
+          cp -v tghpm build-root/rootfs/usr/local/bin/tghpm
           chmod +x build-root/rootfs/usr/local/bin/tghpm
           
-          cp tgh-install build-root/rootfs/usr/local/bin/tgh-install
+          ls -la tgh-install || echo "[!] Kök dizinde tgh-install yok!"
+          cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
           chmod +x build-root/rootfs/usr/local/bin/tgh-install
 
           mkdir -p build-root/rootfs/root/.tgh/apps build-root/rootfs/root/.tgh/cache
 
+          # Güçlendirilmiş init script
           cat << 'EOF' > build-root/rootfs/init
           #!/bin/sh
           mount -t proc none /proc
@@ -54,7 +57,14 @@ jobs:
           echo "    TAGCHAOS OS (Shell-Native) v0.4       "
           echo "    Kurulum için: tgh-install /dev/sdX    "
           echo "=========================================="
-          tghpm demo
+
+          if [ -x /usr/local/bin/tghpm ]; then
+              /usr/local/bin/tghpm demo
+          else
+              echo "[!] /usr/local/bin/tghpm bulunamadı veya çalıştırılabilir değil!"
+              ls -la /usr/local/bin/
+          fi
+
           exec /bin/sh
           EOF
           chmod +x build-root/rootfs/init
