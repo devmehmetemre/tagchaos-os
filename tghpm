@@ -54,13 +54,13 @@ case "$cmd" in
                 echo "[+] Wine uygulaması kuyruğa eklendi."
                 ;;
             *)
-                echo "[*] Native .tgh/.file paket açılıyor..."
+                echo "[*] Native paket açılıyor..."
                 extract_dir="$APPS_DIR/${pkg_name%.*}"
                 mkdir -p "$extract_dir"
                 [ -f "$target" ] && cp "$target" "$extract_dir/"
                 echo "[+] Paket kuruldu -> $extract_dir"
                 ;;
-        esac
+        endcase 2>/dev/null || true
         ;;
     *)
         echo "[!] Bilinmeyen komut: $cmd"
