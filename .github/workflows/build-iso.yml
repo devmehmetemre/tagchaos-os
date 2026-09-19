@@ -31,19 +31,26 @@ jobs:
           echo "[*] Kernel indiriliyor..."
           wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/netboot/vmlinuz-virt" -O build-root/iso/boot/vmlinuz-virt
 
-          # DNS ve Repo yapılandırması (apk'nın dış dünyaya erişmesi için)
           cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
           cat << 'EOF' > build-root/rootfs/etc/apk/repositories
           https://dl-cdn.alpinelinux.org/alpine/v3.20/main
           https://dl-cdn.alpinelinux.org/alpine/v3.20/community
           EOF
 
+          # Build aşamasında fdisk (util-linux) ve mkfs.ext4 (e2fsprogs) mühürle
+          sudo mount --bind /proc build-root/rootfs/proc
+          sudo mount --bind /sys build-root/rootfs/sys
+          sudo mount --bind /dev build-root/rootfs/dev
+          sudo chroot build-root/rootfs apk update
+          sudo chroot build-root/rootfs apk add util-linux e2fsprogs
+          sudo umount build-root/rootfs/proc build-root/rootfs/sys build-root/rootfs/dev
+
           # tgh-install ekle
           mkdir -p build-root/rootfs/usr/local/bin
           cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
           chmod +x build-root/rootfs/usr/local/bin/tgh-install
 
-          # Temel init script (apk ve ağ hazır)
+          # Temel init script
           cat << 'EOF' > build-root/rootfs/init
           #!/bin/sh
           mount -t proc none /proc
@@ -51,13 +58,9 @@ jobs:
           mount -t devtmpfs none /dev 2>/dev/null || true
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
           
-          # Ağ arayüzü varsa DHCP dene (sessiz)
-          udhcpc -b -i eth0 2>/dev/null || udhcpc -b 2>/dev/null || true
-          
           clear
           echo "=========================================="
           echo "    TAGCHAOS OS (Alpine Native) v1.1      "
-          echo "    Paket yönetimi: apk add <paket>       "
           echo "    Kurulum için  : tgh-install /dev/sdX  "
           echo "=========================================="
           exec /bin/sh
