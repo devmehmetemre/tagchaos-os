@@ -1,0 +1,46 @@
+#!/bin/sh
+# TAGCHAOS OS Kurulum Aracı (tgh-install)
+set -e
+
+TARGET_DISK=$1
+if [ -z "$TARGET_DISK" ]; then
+    echo "[!] Kullanım: tgh-install /dev/hedef_disk (örn: /dev/vda veya /dev/sda)"
+    exit 1
+fi
+
+echo "[*] UYARI: $TARGET_DISK üzerindeki tüm veriler silinecek! Devam etmek için 'YES' yazın:"
+read CONFIRM
+if [ "$CONFIRM" != "YES" ]; then
+    echo "İptal edildi."
+    exit 0
+fi
+
+echo "[*] Disk bölümleme yapılıyor ($TARGET_DISK)..."
+# Partition 1: ext4 root
+parted -s "$TARGET_DISK" mklabel msdos
+parted -s "$TARGET_DISK" mkpart primary ext4 1MiB 100%
+parted -s "$TARGET_DISK" set 1 boot on
+
+PART="${TARGET_DISK}1"
+# Disk isminin sonunda rakam varsa (örn /dev/sda1 yerine /dev/nvme0n1p1) ayarlamak gerekebilir ama basitçe:
+[ -b "${TARGET_DISK}p1" ] && PART="${TARGET_DISK}p1"
+
+echo "[*] Dosya sistemi biçimlendiriliyor ($PART)..."
+mkfs.ext4 -F "$PART"
+
+MOUNT_DIR="/mnt/tagchaos-target"
+mkdir -p "$MOUNT_DIR"
+mount "$PART" "$MOUNT_DIR"
+
+echo "[*] Rootfs kopyalanıyor..."
+cp -a / * "$MOUNT_DIR" 2>/dev/null || true
+rm -rf "$MOUNT_DIR/mnt/*" "$MOUNT_DIR/proc/*" "$MOUNT_DIR/sys/*" "$MOUNT_DIR/dev/*"
+mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt"
+
+echo "[*] GRUB Kuruluyor..."
+apk add --no-root-path --root "$MOUNT_DIR" grub grub-bios || true
+chroot "$MOUNT_DIR" grub-install --target=i386-pc "$TARGET_DISK"
+chroot "$MOUNT_DIR" grub-mkconfig -o /boot/grub/grub.cfg
+
+umount "$MOUNT_DIR"
+echo "[+] Kurulum tamamlandı! Bilgisayarı yeniden başlatabilirsiniz."
