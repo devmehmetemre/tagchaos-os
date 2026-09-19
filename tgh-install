@@ -2,9 +2,14 @@
 set -e
 TARGET_DISK=$1
 [ -z "$TARGET_DISK" ] && { echo "[!] Kullanım: tgh-install /dev/hedef_disk"; exit 1; }
+
+# Gerekli araçları kontrol et/kur
+apk add --no-cache parted e2fsprogs 2>/dev/null || true
+
 echo "[*] UYARI: $TARGET_DISK silinecek! Devam için 'YES' yazın:"
 read CONFIRM
 [ "$CONFIRM" != "YES" ] && { echo "İptal."; exit 0; }
+
 parted -s "$TARGET_DISK" mklabel msdos
 parted -s "$TARGET_DISK" mkpart primary ext4 1MiB 100%
 parted -s "$TARGET_DISK" set 1 boot on
