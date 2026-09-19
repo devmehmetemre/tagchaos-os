@@ -15,7 +15,7 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip
+          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools
 
       - name: Initramfs ve ISO Hazırlığı
         run: |
