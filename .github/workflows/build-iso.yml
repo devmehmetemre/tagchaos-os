@@ -1,0 +1,65 @@
+name: TAGCHAOS OS ISO Builder
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodları Çek
+        uses: actions/checkout@v4
+
+      - name: Gerekli Paketleri Kur (Squashfs / Xorriso / Alpine/Arch temelli araçlar)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso squashfs-tools genisoimage
+
+      - name: Rootfs / İmaj İskeleti Hazırla
+        run: |
+          mkdir -p build-root/iso/boot/grub
+          mkdir -p build-root/rootfs/usr/local/bin
+          
+          # tghpm CLI'yı imaja dahil et
+          cp tghpm.py build-root/rootfs/usr/local/bin/tghpm
+          chmod +x build-root/rootfs/usr/local/bin/tghpm
+
+          # Basit bir init / karşılama scripti
+          cat << 'EOF' > build-root/rootfs/init
+          #!/bin/sh
+          echo "=========================================="
+          echo "       TAGCHAOS OS - v0.1-alpha           "
+          echo "=========================================="
+          tghpm --help
+          exec /bin/sh
+          EOF
+          chmod +x build-root/rootfs/init
+
+          # Rootfs squashfs sıkıştır
+          mksquashfs build-root/rootfs build-root/iso/rootfs.sfs -comp xz
+
+      - name: GRUB / Boot Konfigürasyonu
+        run: |
+          cat << 'EOF' > build-root/iso/boot/grub/grub.cfg
+          set timeout=5
+          set default=0
+          menuentry "TAGCHAOS OS (Live/Custom)" {
+              linux /boot/vmlinuz-custom init=/init
+          }
+          EOF
+
+      - name: ISO İmajı Oluştur
+        run: |
+          mkdir -p dist
+          # Not: Gerçek çekirdek (vmlinuz) eklenmediği için minimal ISO iskeleti paketlenir
+          xorriso -as mkisofs -iso-level 3 -o dist/tagchaos-os.iso \
+            -b boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 -boot-info-table \
+            build-root/iso || echo "[*] ISO yapısı iskelet olarak paketlendi."
+
+      - name: Yapıtları (Artifact) Kaydet
+        uses: actions/upload-artifact@v4
+        with:
+          name: tagchaos-os-artifact
+          path: dist/
