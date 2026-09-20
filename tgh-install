@@ -1,105 +1,128 @@
 #!/bin/sh
+# TAGCHAOS OS - Complete Universal & Lite TUI Installer
 set -e
 
-echo "=========================================="
-echo "      TAGCHAOS OS DISK KURUCU            "
-echo "=========================================="
-
-# Canlı sistemin bağlı olduğu ISO diskini tespit et
-LIVE_DEV=""
-if mountpoint -q /mnt/cdrom; then
-    LIVE_DEV=$(mount | grep /mnt/cdrom | awk '{print $1}' | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//')
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[!] Bu aracı çalıştırmak için root yetkisi gereklidir."
+    exit 1
 fi
 
-TARGET_DISK=""
-for d in /dev/sda /dev/sdb /dev/vda /dev/vdb /dev/nvme0n1 /dev/mmcblk0 /dev/mmcblk1; do
-    if [ -b "$d" ]; then
-        case "$d" in
-            /dev/sr*) continue ;;
-        esac
-        # Canlı ISO medyasını hedef disk olarak seçme
-        if [ -n "$LIVE_DEV" ] && echo "$d" | grep -q "$LIVE_DEV"; then
-            continue
-        fi
-        # Salt okunur (CD-ROM) sürücüleri atla
-        IS_RO=$(cat /sys/block/$(basename $d)/ro 2>/dev/null || echo "0")
-        if [ "$IS_RO" = "1" ]; then
-            continue
-        fi
+export DIALOGRC=""
 
-        TARGET_DISK="$d"
-        break
+# 1. Dil Seçimi
+LANG_CHOICE=$(dialog --clear --title "TAGCHAOS OS - System Locale" \
+    --menu "Lütfen sistem dilini seçin / Select system language:" 12 55 2 \
+    "tr_TR.UTF-8" "Türkçe" \
+    "en_US.UTF-8" "English" \
+    3>&1 1>&2 2>&3) || exit 1
+
+# 2. Zaman Dilimi Seçimi
+TIMEZONE=$(dialog --clear --title "TAGCHAOS OS - Zaman Dilimi" \
+    --menu "Zaman dilimini seçin:" 15 55 4 \
+    "Europe/Istanbul" "Türkiye (GMT+3)" \
+    "Europe/London" "Londra (GMT+0)" \
+    "America/New_York" "New York (GMT-5)" \
+    "UTC" "Evrensel Zaman" \
+    3>&1 1>&2 2>&3) || exit 1
+
+# 3. Disk Seçimi
+DISKS=$(lsblk -dn -o NAME,SIZE,TYPE | grep "disk" | awk '{print "/dev/"$1" "$2}')
+if [ -z "$DISKS" ]; then
+    dialog --title "HATA" --msgbox "Kurulum yapılabilecek uygun bir sabit disk bulunamadı!" 8 50
+    exit 1
+fi
+
+TARGET_DISK=$(dialog --clear --title "TAGCHAOS OS - Disk Seçimi" \
+    --menu "Kurulum yapılacak diski seçin:" 15 60 5 \
+    $DISKS \
+    3>&1 1>&2 2>&3) || exit 1
+
+# 4. Kullanıcı Hesabı Yapılandırması
+USERNAME=$(dialog --clear --title "Kullanıcı Oluşturma" \
+    --inputbox "Sistem için yeni kullanıcı adı girin:" 8 45 "tagchaos" \
+    3>&1 1>&2 2>&3) || exit 1
+
+USER_PASS=$(dialog --clear --title "Kullanıcı Parolası" \
+    --passwordbox "Kullanıcı için parola girin:" 8 45 \
+    3>&1 1>&2 2>&3) || exit 1
+
+ROOT_PASS=$(dialog --clear --title "Root Parolası" \
+    --passwordbox "Sistem Root yöneticisi için parola girin:" 8 45 \
+    3>&1 1>&2 2>&3) || exit 1
+
+# 5. Onay
+dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
+    --yesno "$TARGET_DISK diski tamamen sıfırlanacak ve TAGCHAOS OS kurulacaktır.\n\nDevam etmek istiyor musunuz?" 10 55 || exit 0
+
+# 6. Kurulum Aşaması
+(
+    echo "10"; echo "XXX\nDisk MBR/Legacy düzeninde bölümlendiriliyor... \nXXX"
+    dd if=/dev/zero of="$TARGET_DISK" bs=1M count=10 status=none
+    printf "o\nn\np\n1\n\n\na\n1\nw\n" | fdisk "$TARGET_DISK" >/dev/null 2>&1 || true
+    partprobe "$TARGET_DISK" 2>/dev/null || true
+    sleep 2
+
+    PART="${TARGET_DISK}1"
+    case "$TARGET_DISK" in
+        *nvme*|*mmcblk*) PART="${TARGET_DISK}p1" ;;
+    esac
+
+    echo "30"; echo "XXX\nDosya sistemi oluşturuluyor (ext4: $PART)... \nXXX"
+    mkfs.ext4 -F -L "TAGCHAOS_ROOT" "$PART" >/dev/null 2>&1
+
+    MOUNT_DIR="/mnt/tagchaos-target"
+    mkdir -p "$MOUNT_DIR"
+    mount "$PART" "$MOUNT_DIR"
+
+    echo "50"; echo "XXX\nSistem dosyaları diske ayıklanıyor... \nXXX"
+    if [ -f /mnt/cdrom/system.tar.xz ]; then
+        tar -xf /mnt/cdrom/system.tar.xz -C "$MOUNT_DIR/"
+    elif [ -f /system.tar.xz ]; then
+        tar -xf /system.tar.xz -C "$MOUNT_DIR/"
     fi
-done
 
-if [ -z "$TARGET_DISK" ]; then
-    echo "[!] HATA: Yüklenecek uygun boş/yazılabilir disk bulunamadı!"
-    echo "VirtualBox ayarlarından sanal bir sabit disk (VDI) eklendiğinden emin olun."
-    exit 1
-fi
+    echo "70"; echo "XXX\nDosya sistemi fstab ve Sanal Bağlantılar Yapılandırılıyor... \nXXX"
+    UUID=$(blkid -s UUID -o value "$PART")
+    mkdir -p "$MOUNT_DIR/etc"
+    echo "UUID=$UUID  /  ext4  errors=remount-ro,noatime  0  1" > "$MOUNT_DIR/etc/fstab"
 
-echo "[*] Hedef Disk Saptandı: $TARGET_DISK"
-echo "[!] UYARI: $TARGET_DISK üzerindeki TÜM VERİLER SİLİNECEKTİR!"
-echo "Devam etmek için 'YES' yazın:"
-read CONFIRM
-if [ "$CONFIRM" != "YES" ]; me
-    echo "Kurulum iptal edildi."
-    exit 0
-fi
+    mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev"
+    mount --bind /dev "$MOUNT_DIR/dev"
+    mount --bind /proc "$MOUNT_DIR/proc"
+    mount --bind /sys "$MOUNT_DIR/sys"
 
-echo "[*] Disk bölümlendiriliyor (MBR/Legacy)..."
-printf "o\nn\np\n1\n\n\na\n1\nw\n" | fdisk "$TARGET_DISK" || true
+    echo "85"; echo "XXX\nKullanıcılar, Parolalar ve Yerel Ayarlar Yapılandırılıyor... \nXXX"
+    chroot "$MOUNT_DIR" ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime 2>/dev/null || true
+    echo "LANG=$LANG_CHOICE" > "$MOUNT_DIR/etc/profile.d/locale.sh"
+    echo "tagchaos-os" > "$MOUNT_DIR/etc/hostname"
 
-PART="${TARGET_DISK}1"
-case "$TARGET_DISK" in
-    *nvme*|*mmcblk*) PART="${TARGET_DISK}p1" ;;
-esac
+    # Password Setup
+    echo "root:$ROOT_PASS" | chroot "$MOUNT_DIR" chpasswd
+    chroot "$MOUNT_DIR" adduser -D -s /bin/sh "$USERNAME" 2>/dev/null || true
+    echo "$USERNAME:$USER_PASS" | chroot "$MOUNT_DIR" chpasswd
+    chroot "$MOUNT_DIR" addgroup "$USERNAME" wheel 2>/dev/null || true
 
-echo "[*] Dosya sistemi oluşturuluyor (ext4): $PART"
-mkfs.ext4 -F "$PART"
+    echo "95"; echo "XXX\nGRUB Ön Yükleyicisi Yapılandırılıyor... \nXXX"
+    chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$TARGET_DISK" >/dev/null 2>&1 || true
 
-MOUNT_DIR="/mnt/tagchaos-target"
-mkdir -p "$MOUNT_DIR"
-mount "$PART" "$MOUNT_DIR"
-
-PAYLOAD="/mnt/cdrom/system.tar.xz"
-if [ ! -f "$PAYLOAD" ]; then
-    echo "[!] HATA: Sistem imajı ($PAYLOAD) bulunamadı!"
-    umount "$MOUNT_DIR"
-    exit 1
-fi
-
-echo "[*] Sistem diske aktarılıyor..."
-tar -xf "$PAYLOAD" -C "$MOUNT_DIR/"
-
-mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
-
-echo "[*] Ön yükleyici ve çekirdek yapılandırılıyor..."
-mount --bind /dev "$MOUNT_DIR/dev"
-mount --bind /proc "$MOUNT_DIR/proc"
-mount --bind /sys "$MOUNT_DIR/sys"
-
-chroot "$MOUNT_DIR" apk add --no-cache mkinitfs
-LTS_VER=$(ls "$MOUNT_DIR/lib/modules" | tail -n 1)
-chroot "$MOUNT_DIR" mkinitfs -o /boot/initramfs-lts "$LTS_VER" || true
-
-chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$TARGET_DISK" || true
-
-chroot "$MOUNT_DIR" sh -c "cat << 'EOF' > /boot/grub/grub.cfg
+    chroot "$MOUNT_DIR" sh -c "cat << 'EOF' > /boot/grub/grub.cfg
 set timeout=3
 set default=0
+
 menuentry \"TAGCHAOS OS\" {
-    linux /boot/vmlinuz-lts root=$PART ro quiet
+    insmod ext2
+    search --no-floppy --fs-uuid --set=root $UUID
+    linux /boot/vmlinuz-lts root=UUID=$UUID ro quiet
     initrd /boot/initramfs-lts
 }
 EOF"
 
-chroot "$MOUNT_DIR" rc-update add iwd default 2>/dev/null || true
+    umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
+    umount "$MOUNT_DIR" 2>/dev/null || true
 
-umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
-umount "$MOUNT_DIR"
+    echo "100"; echo "XXX\nKurulum Başarıyla Tamamlandı! \nXXX"
+    sleep 1
+) | dialog --title "TAGCHAOS OS Kuruluyor" --gauge "Lütfen bekleyin..." 10 60 0
 
-echo "=========================================="
-echo " [+] TAGCHAOS OS Kurulumu Başarıyla Tamamlandı!"
-echo "     Medyayı çıkarıp sistemi yeniden başlatabilirsiniz."
-echo "=========================================="
+dialog --clear --title "Kurulum Bitti" --msgbox "TAGCHAOS OS başarıyla kuruldu!\n\nISO medyasını çıkarıp 'reboot' komutu ile sistemi yeniden başlatabilirsiniz." 9 55
+clear
