@@ -6,7 +6,7 @@ echo "      TAGCHAOS OS DISK KURUCU            "
 echo "=========================================="
 
 TARGET_DISK=""
-for d in /dev/vda /dev/sda /dev/sdb /dev/nvme0n1 /dev/mmcblk0; do
+for d in /dev/vda /dev/sda /dev/sdb /dev/nvme0n1 /dev/mmcblk0 /dev/mmcblk1; do
     if [ -b "$d" ]; then
         case "$d" in
             /dev/sr*) continue ;;
@@ -46,20 +46,20 @@ mkdir -p "$MOUNT_DIR"
 mount "$PART" "$MOUNT_DIR"
 
 PAYLOAD=""
-if [ -f /mnt/cdrom/system.tar.gz ]; then
+if [ -f /mnt/cdrom/system.tar.xz ]; then
+    PAYLOAD="/mnt/cdrom/system.tar.xz"
+elif [ -f /mnt/cdrom/system.tar.gz ]; then
     PAYLOAD="/mnt/cdrom/system.tar.gz"
-elif [ -f /system.tar.gz ]; then
-    PAYLOAD="/system.tar.gz"
 fi
 
 if [ -z "$PAYLOAD" ]; then
-    echo "[!] HATA: system.tar.gz kalıbı bulunamadı!"
+    echo "[!] HATA: Sistem imajı (system.tar.xz/gz) bulunamadı!"
     umount "$MOUNT_DIR"
     exit 1
 fi
 
 echo "[*] Sistem diske aktarılıyor ($PAYLOAD)..."
-tar -xzf "$PAYLOAD" -C "$MOUNT_DIR/"
+tar -xf "$PAYLOAD" -C "$MOUNT_DIR/"
 
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
 
@@ -83,7 +83,6 @@ menuentry \"TAGCHAOS OS\" {
 }
 EOF"
 
-# iwd Servisini Başlangıca Ekle
 chroot "$MOUNT_DIR" rc-update add iwd default 2>/dev/null || true
 
 umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
