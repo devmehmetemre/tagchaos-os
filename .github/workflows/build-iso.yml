@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Ultra-Lite ISO Builder
+name: TAGCHAOS OS Ultra-Lite Universal Builder
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync binutils
 
-      - name: Sıfırdan Temiz ve Budanmış Build
+      - name: Sıfırdan Temiz Build - VIRT KERNEL ILE
         run: |
           set -e
           BUILD_DIR="/tmp/tgh-build"
@@ -25,7 +25,7 @@ jobs:
           mkdir -p "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/grub" "$BUILD_DIR/initramfs-root" dist
 
           ALPINE_VER="3.20.3"
-          echo "[*] Alpine minirootfs indiriliyor..."
+          echo "[*] Alpine minirootfs indiriliyor (~3.5 MB)..."
           wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-${ALPINE_VER}-x86_64.tar.gz" -O alpine.tar.gz
           tar -xzf alpine.tar.gz -C "$BUILD_DIR/rootfs"
           rm alpine.tar.gz
@@ -42,31 +42,24 @@ jobs:
           sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
           sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # Temel Paket Kurulumu
+          # HEDEF SİSTEM İÇİN VIRT KERNEL VE TEMEL PAKETLER KURULUYOR
+          # linux-lts YERİNE linux-virt KULLANILIYOR!
           sudo chroot "$BUILD_DIR/rootfs" apk update
-          sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc
+          sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache linux-virt busybox e2fsprogs util-linux grub grub-bios rsync openrc mkinitfs
 
-          LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
+          VIRT_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
 
-          # ---------------------------------------------------------
-          # KÖKTEN ŞİŞKİNLİK TEMİZLİĞİ (799 MB -> 60 MB DÜŞÜREN KISIM)
-          # ---------------------------------------------------------
-          echo "[*] Kernel modülleri budanıyor ve debug sembolleri siliniyor..."
-          MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
-          
-          # 1. Ses, Ekran Kartı, Wi-Fi ve Medya Sürücülerini Canlı İmajdan Sil
+          # KÖKTEN TEMİZLİK (Eğer virt kernel'de bile çöp kaldıysa)
+          echo "[*] Kernel modülleri temizleniyor..."
+          MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$VIRT_VER"
           sudo rm -rf "$MOD_PATH/kernel/sound" \
                       "$MOD_PATH/kernel/drivers/gpu" \
                       "$MOD_PATH/kernel/drivers/media" \
                       "$MOD_PATH/kernel/drivers/net/wireless" \
                       "$MOD_PATH/kernel/drivers/bluetooth" || true
 
-          # 2. Kalan Tüm Kernel Modüllerinin Debug Sembollerini Sil (Boyut %70 Küçülür)
           sudo find "$MOD_PATH" -type f -name "*.ko*" -exec strip --strip-debug {} + 2>/dev/null || true
-
-          # 3. Gereksiz Doküman ve Önbellek Temizliği
           sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc /lib/firmware/* || true
-          # ---------------------------------------------------------
 
           # tgh-install Yükleyiciyi Ekle
           sudo cp -v tgh-install "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
@@ -75,8 +68,8 @@ jobs:
           # Mountları Çıkar
           sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
 
-          # Kernel'i ISO Boot Dizinine Taşı
-          sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
+          # Kernel'i ISO Boot Dizinine Taşı (Artık adı vmlinuz-virt)
+          sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-virt" "$BUILD_DIR/iso/boot/vmlinuz-virt"
 
           # 1. HEDEF SİSTEM PAYLOAD'I (system.tar.gz)
           echo "[*] Hedef OS Payload paketleniyor..."
@@ -98,9 +91,9 @@ jobs:
           sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
           sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 
-          # Sadece Disk & Depolama Modüllerini Initramfs İçine Koy
-          mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
-          sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/"
+          # Sadece VIRT Disk & Depolama Modüllerini Initramfs İçine Koy
+          mkdir -p "$INITRD_DIR/lib/modules/$VIRT_VER"
+          sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/" || true
 
           sudo cp "$BUILD_DIR/rootfs/usr/local/bin/tgh-install" "$INITRD_DIR/usr/local/bin/tgh-install"
           sudo chmod +x "$INITRD_DIR/usr/local/bin/tgh-install"
@@ -116,7 +109,7 @@ jobs:
 
           mdev -s 2>/dev/null || true
 
-          # Temel Disk Sürücülerini Yükle
+          # Virt/Disk Sürücülerini Yükle
           modprobe virtio_blk 2>/dev/null || true
           modprobe virtio_pci 2>/dev/null || true
           modprobe ahci 2>/dev/null || true
@@ -155,7 +148,7 @@ jobs:
           sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
           echo "=== DOSYA BOYUTLARI KONTROLÜ ==="
-          ls -lh "$BUILD_DIR/iso/boot/vmlinuz-lts"
+          ls -lh "$BUILD_DIR/iso/boot/vmlinuz-virt"
           ls -lh "$BUILD_DIR/iso/boot/initrd.img"
           ls -lh "$BUILD_DIR/iso/system.tar.gz"
 
@@ -167,7 +160,7 @@ jobs:
           set timeout=3
           set default=0
           menuentry "TAGCHAOS OS (Live / Install)" {
-              linux /boot/vmlinuz-lts quiet
+              linux /boot/vmlinuz-virt quiet
               initrd /boot/initrd.img
           }
           EOF
