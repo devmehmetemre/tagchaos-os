@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Ultra-Lite Universal Builder (Laptop + Wi-Fi)
+name: TAGCHAOS OS Ultra-Lite (Wi-Fi + SD Card < 50MB)
 
 on:
   push:
@@ -15,9 +15,9 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync binutils
+          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip xz-utils mtools util-linux rsync binutils
 
-      - name: Laptop & Wi-Fi Destekli Ultra-Lite Build
+      - name: Micro-Sized Wi-Fi & SD Card Build
         run: |
           set -e
           BUILD_DIR="/tmp/tgh-build"
@@ -42,36 +42,45 @@ jobs:
           sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
           sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # LAPTOP & WI-FI İÇİN LTS KERNEL + WI-FI PAKETLERİ
+          # LTS KERNEL + SADECE İHTİYAÇ OLAN AĞ PAKETLERİ
           sudo chroot "$BUILD_DIR/rootfs" apk update
           sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
-              linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc \
-              iwd wpa_supplicant wireless-tools \
-              linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-ath9k linux-firmware-brcm
+              linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd \
+              linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath9k linux-firmware-ath10k
 
           LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
           MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
 
           # ---------------------------------------------------------
-          # KONTROLLÜ TEMİZLİK (Wi-Fi & Ağ Sürücüleri Saklanır)
+          # MİKRO BİÇME (Sadece Wi-Fi, SD Kart, Disk ve VirtIO kalır)
           # ---------------------------------------------------------
-          echo "[*] Ağ dışı ağır sürücüler temizleniyor..."
-          sudo rm -rf "$MOD_PATH/kernel/sound" \
-                      "$MOD_PATH/kernel/drivers/gpu" \
-                      "$MOD_PATH/kernel/drivers/media" \
-                      "$MOD_PATH/kernel/drivers/bluetooth" \
-                      "$MOD_PATH/kernel/drivers/telephony" \
-                      "$MOD_PATH/kernel/drivers/video" || true
+          echo "[*] Sürücüler mikro seviyede temizleniyor..."
+          
+          # drivers/ altındaki gereksiz TÜM klasörleri sil (mmc, net, block, nvme, ata, virtio, scsi HARIÇ)
+          sudo find "$MOD_PATH/kernel/drivers" -maxdepth 1 -mindepth 1 \
+            ! -name "net" \
+            ! -name "block" \
+            ! -name "nvme" \
+            ! -name "ata" \
+            ! -name "virtio" \
+            ! -name "mmc" \
+            ! -name "scsi" \
+            -exec rm -rf {} + || true
 
-          # Ekran kartı ve ses firmware'lerini sil (Sadece Wi-Fi Firmware kalsın)
-          sudo rm -rf "$BUILD_DIR/rootfs/lib/firmware/amdgpu" \
-                      "$BUILD_DIR/rootfs/lib/firmware/radeon" \
-                      "$BUILD_DIR/rootfs/lib/firmware/nvidia" \
-                      "$BUILD_DIR/rootfs/lib/firmware/i915" \
-                      "$BUILD_DIR/rootfs/lib/firmware/intel/catpt" \
-                      "$BUILD_DIR/rootfs/lib/firmware/intel/avs" || true
+          # net/ altından wireless DIŞINDAKİ Ethernet vs. sürücüleri sil
+          sudo find "$MOD_PATH/kernel/drivers/net" -maxdepth 1 -mindepth 1 \
+            ! -name "wireless" \
+            -exec rm -rf {} + || true
 
-          # Tüm modüllerin debug sembollerini temizle
+          # Firmware temizliği: Sadece iwlwifi, rtlwifi, ath*.fw tut, gerisini sil
+          echo "[*] Lüzumsuz firmware dosyaları siliniyor..."
+          sudo find "$BUILD_DIR/rootfs/lib/firmware" -type f \
+            ! -name "*iwlwifi*" \
+            ! -name "*rtlwifi*" \
+            ! -name "*ath*" \
+            -delete 2>/dev/null || true
+
+          # Debug sembollerini temizle
           sudo find "$MOD_PATH" -type f -name "*.ko*" -exec strip --strip-debug {} + 2>/dev/null || true
           sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc || true
           # ---------------------------------------------------------
@@ -86,8 +95,8 @@ jobs:
           # Kernel'i ISO Boot Dizinine Taşı
           sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
-          # 1. HEDEF SİSTEM PAYLOAD'I (system.tar.gz)
-          echo "[*] Hedef OS Payload paketleniyor..."
+          # 1. HEDEF SİSTEM PAYLOAD'I (XZ ile Ultra Yüksek Sıkıştırma)
+          echo "[*] Hedef OS Payload paketleniyor (system.tar.xz)..."
           sudo tar --exclude="./dev/*" \
                    --exclude="./proc/*" \
                    --exclude="./sys/*" \
@@ -95,7 +104,7 @@ jobs:
                    --exclude="./run/*" \
                    --exclude="./mnt/*" \
                    --exclude="./boot/vmlinuz*" \
-                   -czf "$BUILD_DIR/iso/system.tar.gz" -C "$BUILD_DIR/rootfs" .
+                   -cJf "$BUILD_DIR/iso/system.tar.xz" -C "$BUILD_DIR/rootfs" .
 
           # 2. MINIMAL LIVE INITRAMFS
           echo "[*] Ultra-Lite Live Initramfs hazırlanıyor..."
@@ -123,7 +132,7 @@ jobs:
 
           mdev -s 2>/dev/null || true
 
-          # Sürücüleri Yükle
+          # Sürücüleri Yükle (MMC / SD Kart Sürücüleri Dahil)
           modprobe virtio_blk 2>/dev/null || true
           modprobe virtio_pci 2>/dev/null || true
           modprobe ahci 2>/dev/null || true
@@ -131,17 +140,20 @@ jobs:
           modprobe sd_mod 2>/dev/null || true
           modprobe sr_mod 2>/dev/null || true
           modprobe nvme 2>/dev/null || true
+          modprobe mmc_block 2>/dev/null || true
+          modprobe sdhci 2>/dev/null || true
+          modprobe sdhci_pci 2>/dev/null || true
           modprobe isofs 2>/dev/null || true
           modprobe ext4 2>/dev/null || true
 
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
 
           echo "[*] TAGCHAOS OS Live medyası aranıyor..."
-          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
+          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
               [ -b "$dev" ] || continue
               mkdir -p /mnt/cdrom
               if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-                  if [ -f /mnt/cdrom/system.tar.gz ]; then
+                  if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
                       echo "[+] TAGCHAOS OS Medyası Bağlandı: $dev"
                       break
                   fi
@@ -151,7 +163,7 @@ jobs:
 
           clear
           echo "=================================================="
-          echo "    TAGCHAOS OS (Laptop + Wi-Fi Edition) v1.0    "
+          echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
           echo "    Kurulum İçin     : tgh-install                "
           echo "    Wi-Fi Bağlantısı : iwctl                      "
           echo "=================================================="
@@ -159,13 +171,13 @@ jobs:
           EOF
           sudo chmod +x "$INITRD_DIR/init"
 
-          # Initrd Paketi
-          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
+          # Initrd Paketi (XZ Sıkıştırmalı Initrd)
+          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | xz -9 --check=crc32 > $BUILD_DIR/iso/boot/initrd.img"
 
           echo "=== DOSYA BOYUTLARI KONTROLÜ ==="
           ls -lh "$BUILD_DIR/iso/boot/vmlinuz-lts"
           ls -lh "$BUILD_DIR/iso/boot/initrd.img"
-          ls -lh "$BUILD_DIR/iso/system.tar.gz"
+          ls -lh "$BUILD_DIR/iso/system.tar.xz"
 
       - name: GRUB ve ISO Oluşturma
         run: |
