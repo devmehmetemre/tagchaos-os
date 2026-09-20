@@ -75,16 +75,16 @@ jobs:
           
           clear
           echo "=========================================="
-          echo "    TAGCHAOS OS (LTS / Real-HW) v1.2      "
+          echo "    TAGCHAOS OS (LTS / Real-HW) v1.3      "
           echo "    Kurulum için  : tgh-install           "
           echo "=========================================="
           exec /bin/sh
           EOF
           sudo chmod 755 build-root/rootfs/init
 
-          # Canlı ortam / Initramfs cpio root paketleme (Kernel panik çözümü)
+          # Canlı ortam / Initramfs cpio paketleme (Sanal dizinler hariç tutuluyor)
           sudo rm -f build-root/iso/boot/initramfs-lts
-          sudo bash -c 'cd build-root/rootfs && find . -print0 | cpio --null -o -H newc --owner=0:0 | gzip > ../iso/boot/initrd.img'
+          sudo bash -c 'cd build-root/rootfs && find . -xdev ! -path "./proc/*" ! -path "./sys/*" ! -path "./dev/*" -print0 | cpio --null -o -H newc --owner=0:0 | gzip > ../iso/boot/initrd.img'
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
