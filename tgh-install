@@ -70,7 +70,7 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
 
 # 7. Kurulum İşlemi
 (
-    echo "10"; echo "XXX\nDisk bölümlendiriliyor ve MBR oluşturuluyor... \nXXX"
+    echo "10"; echo "XXX\nDisk MBR olarak bölümlendiriliyor... \nXXX"
     dd if=/dev/zero of="$TARGET_DISK" bs=1M count=10 status=none
     parted -s "$TARGET_DISK" mklabel msdos
     parted -s "$TARGET_DISK" mkpart primary ext4 1MiB 100%
@@ -89,17 +89,17 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
     mkdir -p "$MOUNT_DIR"
     mount "$PART" "$MOUNT_DIR"
 
-    echo "45"; echo "XXX\nAna sistem dosyaları diske aktarılıyor... \nXXX"
+    echo "45"; echo "XXX\nAna sistem dosyaları diske kopyalanıyor... \nXXX"
     if [ -f /mnt/cdrom/system.tar.xz ]; then
         tar -xf /mnt/cdrom/system.tar.xz -C "$MOUNT_DIR/"
     elif [ -f /system.tar.xz ]; then
         tar -xf /system.tar.xz -C "$MOUNT_DIR/"
     fi
 
-    echo "60"; echo "XXX\nfstab ve Bağlantı Noktaları Ayarlanıyor... \nXXX"
+    echo "60"; echo "XXX\nfstab ve Sanal Sürücüler Yapılandırılıyor... \nXXX"
     UUID=$(blkid -s UUID -o value "$PART")
     mkdir -p "$MOUNT_DIR/etc"
-    echo "UUID=$UUID  /  ext4  rw,relatime  0  1" > "$MOUNT_DIR/etc/fstab"
+    echo "UUID=$UUID  /  ext4  rw,relatime,errors=remount-ro  0  1" > "$MOUNT_DIR/etc/fstab"
 
     mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev"
     mount --bind /dev "$MOUNT_DIR/dev"
@@ -125,7 +125,7 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
             ;;
     esac
 
-    echo "85"; echo "XXX\nInitramfs Yapılandırılıyor... \nXXX"
+    echo "85"; echo "XXX\nYerel Ayarlar ve Boot Modülleri Yapılandırılıyor... \nXXX"
     chroot "$MOUNT_DIR" ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime 2>/dev/null || true
     echo "LANG=$LANG_CHOICE" > "$MOUNT_DIR/etc/profile.d/locale.sh"
     echo "tagchaos-os" > "$MOUNT_DIR/etc/hostname"
@@ -136,23 +136,29 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
     echo "$USERNAME:$USER_PASS" | chroot "$MOUNT_DIR" chpasswd
     chroot "$MOUNT_DIR" addgroup "$USERNAME" wheel 2>/dev/null || true
 
-    # Initramfs Dosyası Oluşturma
+    # Kök disk ve dosya sistemi modüllerini mkinitfs'e zorla ekliyoruz
+    mkdir -p "$MOUNT_DIR/etc/mkinitfs"
+    echo 'features="base ata ide scsi ext4 nvme virtio kms"' > "$MOUNT_DIR/etc/mkinitfs/mkinitfs.conf"
+
     KERNEL_VER=$(ls "$MOUNT_DIR/lib/modules" | tail -n 1)
-    chroot "$MOUNT_DIR" mkinitfs -b "$MOUNT_DIR" -k "$KERNEL_VER" -o "/boot/initramfs-lts" 2>/dev/null || true
+    chroot "$MOUNT_DIR" mkinitfs -k "$KERNEL_VER" -o "/boot/initramfs-lts"
 
-    echo "95"; echo "XXX\nGRUB Ön Yükleyici Kuruluyor... \nXXX"
-    chroot "$MOUNT_DIR" grub-install --target=i386-pc --boot-directory=/boot --recheck "$TARGET_DISK" >/dev/null 2>&1
+    echo "95"; echo "XXX\nGRUB MBR Diske Enjekte Ediliyor... \nXXX"
+    # GRUB önyükleyici modüllerini diske yaz
+    chroot "$MOUNT_DIR" grub-install --target=i386-pc --boot-directory=/boot --recheck --force "$TARGET_DISK"
 
-    # Kritik Düzeltme: Boot parametrelerine rootfstype, console ve rw eklendi
+    # Kesin çalışan GRUB yapılandırması
     chroot "$MOUNT_DIR" sh -c "cat << 'EOF' > /boot/grub/grub.cfg
 set timeout=3
 set default=0
 
+insmod part_msdos
+insmod ext2
+insmod all_video
+
 menuentry \"TAGCHAOS OS\" {
-    insmod ext2
-    insmod part_msdos
     search --no-floppy --fs-uuid --set=root $UUID
-    linux /boot/vmlinuz-lts root=UUID=$UUID rw rootfstype=ext4 console=tty1 quiet
+    linux /boot/vmlinuz-lts root=UUID=$UUID rw console=tty1 quiet
     initrd /boot/initramfs-lts
 }
 EOF"
@@ -160,9 +166,9 @@ EOF"
     umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
     umount "$MOUNT_DIR" 2>/dev/null || true
 
-    echo "100"; echo "XXX\nKurulum Tamamlandı! \nXXX"
+    echo "100"; echo "XXX\nKurulum Başarıyla Tamamlandı! \nXXX"
     sleep 1
 ) | dialog --title "TAGCHAOS OS Kuruluyor" --gauge "Lütfen bekleyin, sistem kuruluyor..." 10 65 0
 
-dialog --clear --title "BAŞARILI" --msgbox "TAGCHAOS OS diske başarıyla kuruldu!\n\nISO'yu çıkarıp 'reboot' yazarak sisteminizi başlatabilirsiniz." 9 60
+dialog --clear --title "BAŞARILI" --msgbox "TAGCHAOS OS diske başarıyla kuruldu!\n\nSanal makineden ISO'yu (CD/DVD) çıkarın ve 'reboot' yazarak yeniden başlatın." 10 60
 clear
