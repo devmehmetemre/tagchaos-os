@@ -25,17 +25,24 @@ mkfs.ext4 -F "$PART"
 MOUNT_DIR="/mnt/tagchaos-target"
 mkdir -p "$MOUNT_DIR"
 mount "$PART" "$MOUNT_DIR"
-cp -a / * "$MOUNT_DIR" 2>/dev/null || true
-rm -rf "$MOUNT_DIR/mnt/*" "$MOUNT_DIR/proc/*" "$MOUNT_DIR/sys/*" "$MOUNT_DIR/dev/*"
-mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt"
+
+# Canlı sistemden ana kök dizini aktar (sanal dizinler hariç)
+rsync -aAXv --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*"} / "$MOUNT_DIR/" 2>/dev/null || cp -a /bin /etc /lib /root /sbin /usr /var "$MOUNT_DIR/ 2>/dev/null || true
+
+mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
+
+# Root UUID veya partition bulma
+ROOT_PART_UUID=$(blkid -s UUID -o value "$PART")
+[ -z "$ROOT_PART_UUID" ] && ROOT_PART_UUID="$PART"
 
 # Hedef sisteme GRUB BIOS kurulumu
 mount --bind /dev "$MOUNT_DIR/dev"
 mount --bind /proc "$MOUNT_DIR/proc"
 mount --bind /sys "$MOUNT_DIR/sys"
-chroot "$MOUNT_DIR" grub-install --target=i386-pc "$TARGET_DISK" || true
-chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=/dev/sda1 ro; initrd /boot/initrd.img; }' >> /boot/grub/grub.cfg" || true
-umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
 
+chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$TARGET_DISK" || true
+chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=$PART ro; initrd /boot/initrd.img; }' >> /boot/grub/grub.cfg" || true
+
+umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
 umount "$MOUNT_DIR"
 echo "[+] Gerçek donanım kurulumu tamamlandı!"
