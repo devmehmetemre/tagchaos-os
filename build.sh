@@ -25,13 +25,14 @@ sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
 echo "[*] Tüm sistem ve Masaüstü paketleri indiriliyor (Offline ISO hazırlanıyor)..."
 sudo chroot "$BUILD_DIR/rootfs" apk update
+# desktop-testing paketi kaldırılarak plasma-desktop eklendi
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
     tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
     linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm \
     xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa \
     xfce4 xfce4-terminal lightdm lightdm-gtk-greeter \
-    plasma desktop-testing sddm \
+    plasma-desktop sddm \
     gnome gdm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
