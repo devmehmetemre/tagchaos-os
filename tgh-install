@@ -1,58 +1,89 @@
 #!/bin/sh
 set -e
 
+echo "=========================================="
+echo "      TAGCHAOS OS KURULUM SIHIRBAZI            "
+echo "=========================================="
+
 TARGET_DISK=""
-for d in /dev/sd* /dev/vd* /dev/nvme0n1; do
-    [ -b "$d" ] && { TARGET_DISK="$d"; break; }
+for d in /dev/vda /dev/sda /dev/sdb /dev/nvme0n1; do
+    if [ -b "$d" ]; then
+        # ISO CD-ROM sürücüsünü atla
+        case "$d" in
+            /dev/sr*) continue ;;
+        esac
+        TARGET_DISK="$d"
+        break
+    fi
 done
 
-[ -z "$TARGET_DISK" ] && { echo "[!] Hiçbir hedef disk bulunamadı!"; exit 1; }
+if [ -z "$TARGET_DISK" ]; then
+    echo "[!] HATA: Uygun hedef disk bulunamadı!"
+    exit 1
+fi
 
-echo "[*] Bulunan hedef disk: $TARGET_DISK"
-echo "[*] UYARI: $TARGET_DISK silinecek! Devam için 'YES' yazın:"
+echo "[*] Hedef Disk Saptandı: $TARGET_DISK"
+echo "[!] UYARI: $TARGET_DISK üzerindeki TÜM VERİLER SİLİNECEKTİR!"
+echo "Devam etmek için 'YES' yazın:"
 read CONFIRM
-[ "$CONFIRM" != "YES" ] && { echo "İptal."; exit 0; }
+if [ "$CONFIRM" != "YES" ]; then
+    echo "Kurulum iptal edildi."
+    exit 0
+fi
 
+echo "[*] Disk bölümlendiriliyor..."
 printf "o\nn\np\n1\n\n\na\n1\nw\n" | fdisk "$TARGET_DISK" || true
 
 PART="${TARGET_DISK}1"
 case "$TARGET_DISK" in
-    *nvme*) PART="${TARGET_DISK}p1" ;;
+    *nvme*|*mmcblk*) PART="${TARGET_DISK}p1" ;;
 esac
 
+echo "[*] Dosya sistemi oluşturuluyor (ext4): $PART"
 mkfs.ext4 -F "$PART"
 
 MOUNT_DIR="/mnt/tagchaos-target"
 mkdir -p "$MOUNT_DIR"
 mount "$PART" "$MOUNT_DIR"
 
-# Payload arşivini aç (Tertemiz sistem kopyası)
 PAYLOAD=""
-[ -f /rootfs.tar.gz ] && PAYLOAD="/rootfs.tar.gz"
-
-if [ -n "$PAYLOAD" ]; then
-    echo "[*] Temiz sistem payload'ı diske açılıyor..."
-    tar -xzf "$PAYLOAD" -C "$MOUNT_DIR/"
-else
-    echo "[!] Payload bulunamadı, fallback kopya deneniyor..."
-    cp -a /bin /etc /lib /root /sbin /usr /var "$MOUNT_DIR/" 2>/dev/null || true
+if [ -f /mnt/cdrom/system.tar.gz ]; then
+    PAYLOAD="/mnt/cdrom/system.tar.gz"
+elif [ -f /system.tar.gz ]; then
+    PAYLOAD="/system.tar.gz"
 fi
+
+if [ -z "$PAYLOAD" ]; then
+    echo "[!] HATA: system.tar.gz kalıbı bulunamadı!"
+    umount "$MOUNT_DIR"
+    exit 1
+fi
+
+echo "[*] Sistem diske aktarılıyor ($PAYLOAD)..."
+tar -xzf "$PAYLOAD" -C "$MOUNT_DIR/"
 
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
 
-# Kernel ve initramfs hedef diskin boot dizinine kopyala
-mkdir -p "$MOUNT_DIR/boot"
-cp -v /boot/vmlinuz-lts "$MOUNT_DIR/boot/" 2>/dev/null || true
-cp -v /boot/initramfs-lts "$MOUNT_DIR/boot/" 2>/dev/null || true
-
-# Hedef sisteme GRUB BIOS kurulumu
+echo "[*] GRUB ön yükleyici diske kuruluyor..."
 mount --bind /dev "$MOUNT_DIR/dev"
 mount --bind /proc "$MOUNT_DIR/proc"
 mount --bind /sys "$MOUNT_DIR/sys"
 
 chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$TARGET_DISK" || true
-chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=$PART ro; initrd /boot/initramfs-lts; }' >> /boot/grub/grub.cfg" || true
+
+chroot "$MOUNT_DIR" sh -c "cat << 'EOF' > /boot/grub/grub.cfg
+set timeout=3
+set default=0
+menuentry \"TAGCHAOS OS\" {
+    linux /boot/vmlinuz-lts root=$PART ro quiet
+    initrd /boot/initramfs-lts
+}
+EOF"
 
 umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
 umount "$MOUNT_DIR"
-echo "[+] Kurulum tamamlandı! Makineyi yeniden başlatıp diskten boot edebilirsin."
+
+echo "=========================================="
+echo " [+] TAGCHAOS OS Kurulumu Başarıyla Tamamlandı!"
+echo "     Medyayı çıkarıp sistemi yeniden başlatabilirsiniz."
+echo "=========================================="
