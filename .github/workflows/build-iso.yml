@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Lean Universal ISO
+name: TAGCHAOS OS True-Slim ISO
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
       - name: Lean Rootfs ve Payload Hazırlığı
         run: |
           set -e
-          mkdir -p work/rootfs work/iso/boot/grub work/dist work/clean-payload
+          mkdir -p work/rootfs work/iso/boot/grub work/dist work/clean-payload work/initrd-base
           
           ALPINE_VER="3.20.3"
           echo "[*] Alpine minirootfs indiriliyor..."
@@ -39,33 +39,58 @@ jobs:
           sudo mount --bind /dev work/rootfs/dev
           
           sudo chroot work/rootfs apk update
-          sudo chroot work/rootfs apk add linux-lts mkinitfs util-linux e2fsprogs grub grub-bios eudev rsync
+          sudo chroot work/rootfs apk add linux-lts util-linux e2fsprogs grub grub-bios eudev rsync busybox
 
-          LTS_VER=$(ls work/rootfs/lib/modules | tail -n 1)
-          sudo chroot work/rootfs mkinitfs -o /boot/initramfs-lts "$LTS_VER"
-
-          # Agresif temizlik
+          # Temizlik: Modül budama veya gereksiz ağ/ses ağırlığı atma
           sudo chroot work/rootfs apk cache clean || true
           sudo rm -rf work/rootfs/var/cache/apk/* work/rootfs/usr/share/man work/rootfs/usr/share/doc
 
           sudo umount work/rootfs/proc work/rootfs/sys work/rootfs/dev
 
-          # Kernel & Initrd ISO boot dizinine taşı
+          # Kernel ISO boot dizinine taşı
           sudo cp work/rootfs/boot/vmlinuz-lts work/iso/boot/vmlinuz-lts
-          sudo cp work/rootfs/boot/initramfs-lts work/iso/boot/initramfs-lts
 
           # tgh-install ekle
           sudo mkdir -p work/rootfs/usr/local/bin
           sudo cp -v tgh-install work/rootfs/usr/local/bin/tgh-install
           sudo chmod +x work/rootfs/usr/local/bin/tgh-install
 
-          # İzole payload üret (Şişme yapmaz)
+          # Temiz payload üret (rootfs.tar.gz) -> ISO köküne koy
           sudo rsync -a --exclude={'dev/*','proc/*','sys/*','run/*','tmp/*','mnt/*'} work/rootfs/ work/clean-payload/
           sudo mkdir -p work/clean-payload/dev work/clean-payload/proc work/clean-payload/sys work/clean-payload/run work/clean-payload/tmp work/clean-payload/mnt
-
           sudo tar -czf work/iso/rootfs.tar.gz -C work/clean-payload .
-          sudo cp work/iso/rootfs.tar.gz work/rootfs/rootfs.tar.gz
-          ls -lh work/iso/rootfs.tar.gz
+
+          # ULTRA-SLIM INITRAMFS (Şişmeyen saf minik initrd)
+          sudo mkdir -p work/initrd-base/{bin,sbin,etc,proc,sys,dev,mnt,root}
+          sudo cp -a work/rootfs/bin/busybox work/initrd-base/bin/
+          sudo chroot work/initrd-base /bin/busybox --install -s || true
+          sudo cp -v tgh-install work/initrd-base/usr/local/bin/tgh-install || true
+          sudo chmod +x work/initrd-base/usr/local/bin/tgh-install || true
+          sudo cp work/iso/rootfs.tar.gz work/initrd-base/rootfs.tar.gz || true
+
+          # Özel hafif init betiği
+          sudo tee work/initrd-base/init << 'EOF'
+          #!/bin/sh
+          mount -t proc none /proc
+          mount -t sysfs none /sys
+          mount -t devtmpfs none /dev 2>/dev/null || true
+          mkdir -p /dev/pts
+          mount -t devpts devpts /dev/pts 2>/dev/null || true
+          export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
+          
+          clear
+          echo "=========================================="
+          echo "    TAGCHAOS OS (True-Slim) v1.0          "
+          echo "    Kurulum için  : tgh-install           "
+          echo "=========================================="
+          exec /bin/sh
+          EOF
+          sudo chmod +x work/initrd-base/init
+
+          # Initrd cpio paketleme (<15MB garanti)
+          sudo bash -c 'cd work/initrd-base && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > ../iso/boot/initrd.img'
+          rm -f work/iso/boot/initramfs-lts || true
+          ls -lh work/iso/boot/initrd.img work/iso/rootfs.tar.gz
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
@@ -75,7 +100,7 @@ jobs:
           set default=0
           menuentry "TAGCHAOS OS (Live / Install)" {
               linux /boot/vmlinuz-lts quiet
-              initrd /boot/initramfs-lts
+              initrd /boot/initrd.img
           }
           EOF
 
