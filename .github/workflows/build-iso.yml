@@ -107,7 +107,7 @@ jobs:
                    --exclude="./boot/vmlinuz*" \
                    -cJf "$BUILD_DIR/iso/system.tar.xz" -C "$BUILD_DIR/rootfs" .
 
-          # 2. CANLI SİSTEM İÇİN INITRAMFS (Kernel Panic Düzeltildi)
+          # 2. CANLI SİSTEM İÇİN INITRAMFS
           echo "[*] Live Initramfs oluşturuluyor..."
           INITRD_DIR="$BUILD_DIR/initramfs-root"
           mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
@@ -128,57 +128,57 @@ jobs:
 
           # Init Script
           sudo tee "$INITRD_DIR/init" << 'EOF'
-#!/bin/sh
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -t devtmpfs none /dev 2>/dev/null || true
-mkdir -p /dev/pts
-mount -t devpts devpts /dev/pts 2>/dev/null || true
+          #!/bin/sh
+          mount -t proc none /proc
+          mount -t sysfs none /sys
+          mount -t devtmpfs none /dev 2>/dev/null || true
+          mkdir -p /dev/pts
+          mount -t devpts devpts /dev/pts 2>/dev/null || true
 
-mdev -s 2>/dev/null || true
+          mdev -s 2>/dev/null || true
 
-# Tüm Depolama ve Veri Yolu Sürücülerini Yükle
-modprobe virtio_blk 2>/dev/null || true
-modprobe virtio_pci 2>/dev/null || true
-modprobe ahci 2>/dev/null || true
-modprobe ata_generic 2>/dev/null || true
-modprobe sd_mod 2>/dev/null || true
-modprobe sr_mod 2>/dev/null || true
-modprobe nvme 2>/dev/null || true
-modprobe uas 2>/dev/null || true
-modprobe usb_storage 2>/dev/null || true
-modprobe mmc_block 2>/dev/null || true
-modprobe sdhci 2>/dev/null || true
-modprobe sdhci_pci 2>/dev/null || true
-modprobe isofs 2>/dev/null || true
-modprobe ext4 2>/dev/null || true
+          # Tüm Depolama ve Veri Yolu Sürücülerini Yükle
+          modprobe virtio_blk 2>/dev/null || true
+          modprobe virtio_pci 2>/dev/null || true
+          modprobe ahci 2>/dev/null || true
+          modprobe ata_generic 2>/dev/null || true
+          modprobe sd_mod 2>/dev/null || true
+          modprobe sr_mod 2>/dev/null || true
+          modprobe nvme 2>/dev/null || true
+          modprobe uas 2>/dev/null || true
+          modprobe usb_storage 2>/dev/null || true
+          modprobe mmc_block 2>/dev/null || true
+          modprobe sdhci 2>/dev/null || true
+          modprobe sdhci_pci 2>/dev/null || true
+          modprobe isofs 2>/dev/null || true
+          modprobe ext4 2>/dev/null || true
 
-export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
+          export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
 
-echo "[*] TAGCHAOS OS Medyası taranıyor..."
-sleep 2
-mdev -s 2>/dev/null || true
+          echo "[*] TAGCHAOS OS Medyası taranıyor..."
+          sleep 2
+          mdev -s 2>/dev/null || true
 
-for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
-    [ -b "$dev" ] || continue
-    mkdir -p /mnt/cdrom
-    if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-        if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
-            echo "[+] TAGCHAOS OS Medyası Bulundu ve Bağlandı: $dev"
-            break
-        fi
-        umount /mnt/cdrom 2>/dev/null || true
-    fi
-done
+          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
+              [ -b "$dev" ] || continue
+              mkdir -p /mnt/cdrom
+              if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
+                  if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
+                      echo "[+] TAGCHAOS OS Medyası Bulundu ve Bağlandı: $dev"
+                      break
+                  fi
+                  umount /mnt/cdrom 2>/dev/null || true
+              fi
+          done
 
-clear
-echo "=================================================="
-echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
-echo "    Diske Kurulum İçin : tgh-install               "
-echo "    Wi-Fi Bağlantısı   : iwctl                     "
-echo "=================================================="
-exec /bin/sh
-EOF
+          clear
+          echo "=================================================="
+          echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
+          echo "    Diske Kurulum İçin : tgh-install               "
+          echo "    Wi-Fi Bağlantısı   : iwctl                     "
+          echo "=================================================="
+          exec /bin/sh
+          EOF
           sudo chmod +x "$INITRD_DIR/init"
 
           # Initrd Sıkıştırma (Standart Gzip - Maksimum Uyumluluk)
