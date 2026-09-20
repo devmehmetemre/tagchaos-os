@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Universal Desktop ISO Builder
+name: TAGCHAOS OS Installer Build Pipeline
 
 on:
   push:
