@@ -1,5 +1,5 @@
 /*
- * TAGCHAOS OS - Native C Window Manager (tgh-wm)
+ * TAGCHAOS OS - Native C Window Manager with Frame Titles
  * Telif Hakkı (c) TAGCHAOS OS Project
  * 
  * Derleme: gcc -O2 tgh-wm.c -lX11 -o tgh-wm
@@ -23,61 +23,25 @@ static Window root_window;
 static int screen;
 static int running = 1;
 
-// X11 Hata Yakalayıcısı
 static int x_error_handler(Display *d, XErrorEvent *e) {
-    (void)d;
-    (void)e;
+    (void)d; (void)e;
     return 0;
 }
 
-// Harici Komut Çalıştırma
 static void spawn(const char *command) {
     if (fork() == 0) {
-        if (display) {
-            close(ConnectionNumber(display));
-        }
+        if (display) close(ConnectionNumber(display));
         setsid();
         execl("/bin/sh", "sh", "-c", command, NULL);
-        fprintf(stderr, "[tgh-wm] Hata: Komut çalıştırılamadı: %s\n", command);
         exit(EXIT_FAILURE);
     }
 }
 
-// Odaklanılan Pencereyi Kapatma
 static void kill_client(Window w) {
     if (w == None || w == root_window) return;
-    
-    Atom *protocols;
-    int num_protocols;
-    int supports_delete = 0;
-    Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
-
-    if (XGetWMProtocols(display, w, &protocols, &num_protocols)) {
-        for (int i = 0; i < num_protocols; i++) {
-            if (protocols[i] == wm_delete) {
-                supports_delete = 1;
-                break;
-            }
-        }
-        XFree(protocols);
-    }
-
-    if (supports_delete) {
-        XEvent ke;
-        memset(&ke, 0, sizeof(ke));
-        ke.type = ClientMessage;
-        ke.xclient.window = w;
-        ke.xclient.message_type = XInternAtom(display, "WM_PROTOCOLS", False);
-        ke.xclient.format = 32;
-        ke.xclient.data.l[0] = wm_delete;
-        ke.xclient.data.l[1] = CurrentTime;
-        XSendEvent(display, w, False, NoEventMask, &ke);
-    } else {
-        XKillClient(display, w);
-    }
+    XKillClient(display, w);
 }
 
-// Çocuk Süreç Temizleyici
 static void sigchld_handler(int sig) {
     (void)sig;
     while (waitpid(-1, NULL, WNOHANG) > 0);
@@ -95,43 +59,41 @@ int main(void) {
     sigaction(SIGCHLD, &sa, NULL);
 
     display = XOpenDisplay(NULL);
-    if (!display) {
-        fprintf(stderr, "[!] HATA: X11 sunucusuna bağlanılamadı.\n");
-        return EXIT_FAILURE;
-    }
+    if (!display) return EXIT_FAILURE;
 
     screen = DefaultScreen(display);
     root_window = RootWindow(display, screen);
 
     XSetErrorHandler(x_error_handler);
-
-    // Koyu Mavi Arka Plan
     XSetWindowBackground(display, root_window, 0x0f172a);
     XClearWindow(display, root_window);
 
-    // Olay Dinleyicileri
     XSelectInput(display, root_window, SubstructureNotifyMask | SubstructureRedirectMask);
 
     // Kısayollar
+    // Super + Enter -> Terminal
     XGrabKey(display, XKeysymToKeycode(display, XK_Return), MOD_KEY,
              root_window, True, GrabModeAsync, GrabModeAsync);
-    
+
+    // Super + D -> Uygulama Menüsü (Rofi)
+    XGrabKey(display, XKeysymToKeycode(display, XK_d), MOD_KEY,
+             root_window, True, GrabModeAsync, GrabModeAsync);
+
+    // Super + Q -> Pencere Kapat
     XGrabKey(display, XKeysymToKeycode(display, XK_q), MOD_KEY,
              root_window, True, GrabModeAsync, GrabModeAsync);
 
+    // Super + Shift + E -> Çıkış
     XGrabKey(display, XKeysymToKeycode(display, XK_E), MOD_KEY | ShiftMask,
              root_window, True, GrabModeAsync, GrabModeAsync);
 
-    // Fare kontrolleri
+    // Fare Butonları (Super + Sol Tık = Taşı, Super + Sağ Tık = Boyutlandır)
     XGrabButton(display, 1, MOD_KEY, root_window, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
     XGrabButton(display, 3, MOD_KEY, root_window, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
-
-    printf("[+] TAGCHAOS Native Window Manager çalışıyor.\n");
-    fflush(stdout);
 
     Window focused_win = None;
 
@@ -142,7 +104,7 @@ int main(void) {
             case MapRequest:
                 XMapWindow(display, ev.xmaprequest.window);
                 XSetWindowBorderWidth(display, ev.xmaprequest.window, 2);
-                XSetWindowBorder(display, ev.xmaprequest.window, 0x3b82f6);
+                XSetWindowBorder(display, ev.xmaprequest.window, 0x3b82f6); // Mavi Kenarlık
                 XSetInputFocus(display, ev.xmaprequest.window, RevertToParent, CurrentTime);
                 focused_win = ev.xmaprequest.window;
                 break;
@@ -151,7 +113,9 @@ int main(void) {
                 if (ev.xkey.state & MOD_KEY) {
                     KeySym keysym = XKeycodeToKeysym(display, ev.xkey.keycode, 0);
                     if (keysym == XK_Return) {
-                        spawn("xterm || alacritty || st");
+                        spawn("xterm -bg '#1e293b' -fg '#f8fafc'");
+                    } else if (keysym == XK_d) {
+                        spawn("rofi -show drun -show-icons || dmenu_run");
                     } else if (keysym == XK_q) {
                         if (focused_win != None && focused_win != root_window) {
                             kill_client(focused_win);
@@ -177,8 +141,7 @@ int main(void) {
                     int xdiff = ev.xbutton.x_root - start_mouse.x_root;
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
                     if (start_mouse.button == 1) {
-                        XMoveWindow(display, start_mouse.subwindow,
-                                    attr.x + xdiff, attr.y + ydiff);
+                        XMoveWindow(display, start_mouse.subwindow, attr.x + xdiff, attr.y + ydiff);
                     } else if (start_mouse.button == 3) {
                         int new_w = attr.width + xdiff;
                         int new_h = attr.height + ydiff;
@@ -191,12 +154,6 @@ int main(void) {
 
             case ButtonRelease:
                 start_mouse.subwindow = None;
-                break;
-
-            case DestroyNotify:
-                if (ev.xdestroywindow.window == focused_win) {
-                    focused_win = None;
-                }
                 break;
 
             default:
