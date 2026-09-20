@@ -27,27 +27,27 @@ echo "[*] Temel sistem ve font paketleri kuruluyor..."
 sudo chroot "$BUILD_DIR/rootfs" apk update
 
 # Temel Sistem Paketleri
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
     tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
     font-dejavu font-noto
 
 # Ekran Kartı & Sürücüler
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm \
     xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa
 
 echo "[*] Masaüstü ortamları indiriliyor (Offline ISO)..."
 # XFCE4 & LightDM
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     xfce4 xfce4-terminal lightdm lightdm-gtk-greeter
 
 # KDE Plasma & SDDM
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     plasma-desktop sddm
 
-# GNOME (Çakışmaları önlemek için temel paketler halinde çekiliyor)
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+# GNOME & GDM
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     gnome-shell gnome-terminal gdm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
@@ -59,7 +59,7 @@ if [ -f tgh-install ]; then
     sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
 fi
 
-# Düz Metin Karşılama Ekranı (MOTD)
+# MOTD
 sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/motd
 
 =================================================================
