@@ -1,4 +1,4 @@
-name: TAGCHAOS OS True-Slim ISO
+name: TAGCHAOS OS Hyper-Minimal ISO
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync
 
-      - name: Lean Rootfs ve Payload Hazırlığı
+      - name: Minimal Rootfs ve Payload Hazırlığı
         run: |
           set -e
           mkdir -p work/rootfs work/iso/boot/grub work/dist work/clean-payload work/initrd-base
@@ -39,11 +39,11 @@ jobs:
           sudo mount --bind /dev work/rootfs/dev
           
           sudo chroot work/rootfs apk update
-          sudo chroot work/rootfs apk add linux-lts util-linux e2fsprogs grub grub-bios eudev rsync busybox
+          # SADECE ŞART OLANLAR: 1270 MiB çöplük yok, saf çekirdek + araçlar (~150-200MB max)
+          sudo chroot work/rootfs apk add --no-cache linux-lts busybox e2fsprogs util-linux grub grub-bios rsync
 
-          # Temizlik: Modül budama veya gereksiz ağ/ses ağırlığı atma
-          sudo chroot work/rootfs apk cache clean || true
-          sudo rm -rf work/rootfs/var/cache/apk/* work/rootfs/usr/share/man work/rootfs/usr/share/doc
+          # Sert temizlik: Cache, doc, man, locale sıfırlama
+          sudo chroot work/rootfs rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc /lib/apk/db/* || true
 
           sudo umount work/rootfs/proc work/rootfs/sys work/rootfs/dev
 
@@ -60,8 +60,8 @@ jobs:
           sudo mkdir -p work/clean-payload/dev work/clean-payload/proc work/clean-payload/sys work/clean-payload/run work/clean-payload/tmp work/clean-payload/mnt
           sudo tar -czf work/iso/rootfs.tar.gz -C work/clean-payload .
 
-          # ULTRA-SLIM INITRAMFS (Şişmeyen saf minik initrd)
-          sudo mkdir -p work/initrd-base/{bin,sbin,etc,proc,sys,dev,mnt,root}
+          # ULTRA-SLIM INITRAMFS
+          sudo mkdir -p work/initrd-base/{bin,sbin,etc,proc,sys,dev,mnt,root,usr/local/bin}
           sudo cp -a work/rootfs/bin/busybox work/initrd-base/bin/
           sudo chroot work/initrd-base /bin/busybox --install -s || true
           sudo cp -v tgh-install work/initrd-base/usr/local/bin/tgh-install || true
@@ -80,14 +80,14 @@ jobs:
           
           clear
           echo "=========================================="
-          echo "    TAGCHAOS OS (True-Slim) v1.0          "
+          echo "    TAGCHAOS OS (Hyper-Lean) v1.0         "
           echo "    Kurulum için  : tgh-install           "
           echo "=========================================="
           exec /bin/sh
           EOF
           sudo chmod +x work/initrd-base/init
 
-          # Initrd cpio paketleme (<15MB garanti)
+          # Initrd cpio paketleme
           sudo bash -c 'cd work/initrd-base && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > ../iso/boot/initrd.img'
           rm -f work/iso/boot/initramfs-lts || true
           ls -lh work/iso/boot/initrd.img work/iso/rootfs.tar.gz
