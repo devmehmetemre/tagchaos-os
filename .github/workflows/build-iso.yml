@@ -91,7 +91,9 @@ jobs:
           EOF
 
           mkdir -p dist
-          grub-mkrescue -o dist/tagchaos-os.iso build-root/iso
+          sudo chmod -R 755 build-root/iso
+          sudo grub-mkrescue -o dist/tagchaos-os.iso build-root/iso
+          sudo chown -R $USER:$USER dist/
           ls -lh dist/tagchaos-os.iso
 
       - name: Yapıtları Kaydet
