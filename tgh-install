@@ -26,14 +26,24 @@ MOUNT_DIR="/mnt/tagchaos-target"
 mkdir -p "$MOUNT_DIR"
 mount "$PART" "$MOUNT_DIR"
 
-# Canlı sistemden ana kök dizini aktar (sanal dizinler hariç)
-rsync -aAXv --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*"} / "$MOUNT_DIR/" 2>/dev/null || cp -a /bin /etc /lib /root /sbin /usr /var "$MOUNT_DIR/ 2>/dev/null || true
+# Payload arşivini aç (Tertemiz sistem kopyası)
+PAYLOAD=""
+[ -f /rootfs.tar.gz ] && PAYLOAD="/rootfs.tar.gz"
+
+if [ -n "$PAYLOAD" ]; then
+    echo "[*] Temiz sistem payload'ı diske açılıyor..."
+    tar -xzf "$PAYLOAD" -C "$MOUNT_DIR/"
+else
+    echo "[!] Payload bulunamadı, fallback kopya deneniyor..."
+    cp -a /bin /etc /lib /root /sbin /usr /var "$MOUNT_DIR/" 2>/dev/null || true
+fi
 
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
 
-# Root UUID veya partition bulma
-ROOT_PART_UUID=$(blkid -s UUID -o value "$PART")
-[ -z "$ROOT_PART_UUID" ] && ROOT_PART_UUID="$PART"
+# Kernel ve initramfs hedef diskin boot dizinine kopyala
+mkdir -p "$MOUNT_DIR/boot"
+cp -v /boot/vmlinuz-lts "$MOUNT_DIR/boot/" 2>/dev/null || true
+cp -v /boot/initramfs-lts "$MOUNT_DIR/boot/" 2>/dev/null || true
 
 # Hedef sisteme GRUB BIOS kurulumu
 mount --bind /dev "$MOUNT_DIR/dev"
@@ -41,8 +51,8 @@ mount --bind /proc "$MOUNT_DIR/proc"
 mount --bind /sys "$MOUNT_DIR/sys"
 
 chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$TARGET_DISK" || true
-chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=$PART ro; initrd /boot/initrd.img; }' >> /boot/grub/grub.cfg" || true
+chroot "$MOUNT_DIR" sh -c "echo 'set timeout=3' > /boot/grub/grub.cfg && echo 'menuentry \"TAGCHAOS OS\" { linux /boot/vmlinuz-lts root=$PART ro; initrd /boot/initramfs-lts; }' >> /boot/grub/grub.cfg" || true
 
 umount -R "$MOUNT_DIR/dev" "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" 2>/dev/null || true
 umount "$MOUNT_DIR"
-echo "[+] Gerçek donanım kurulumu tamamlandı!"
+echo "[+] Kurulum tamamlandı! Makineyi yeniden başlatıp diskten boot edebilirsin."
