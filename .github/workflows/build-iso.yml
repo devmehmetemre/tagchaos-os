@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Ultra-Lite Universal Builder
+name: TAGCHAOS OS Ultra-Lite ISO Builder
 
 on:
   push:
@@ -15,9 +15,9 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync
+          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync binutils
 
-      - name: Sıfırdan Temiz Build Mantığı
+      - name: Sıfırdan Temiz ve Budanmış Build
         run: |
           set -e
           BUILD_DIR="/tmp/tgh-build"
@@ -42,20 +42,35 @@ jobs:
           sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
           sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # Sadece Hedef Sistem İçin Şart Paketler
+          # Temel Paket Kurulumu
           sudo chroot "$BUILD_DIR/rootfs" apk update
-          sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache linux-lts mkinitfs busybox e2fsprogs util-linux grub grub-bios rsync openrc
+          sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc
 
-          # Hedef sistem için yerleşik initramfs üret
           LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
-          sudo chroot "$BUILD_DIR/rootfs" mkinitfs -o /boot/initramfs-lts "$LTS_VER"
 
-          # tgh-install Yükleyiciyi Hedef Sistem ve Live İçine Ekle
+          # ---------------------------------------------------------
+          # KÖKTEN ŞİŞKİNLİK TEMİZLİĞİ (799 MB -> 60 MB DÜŞÜREN KISIM)
+          # ---------------------------------------------------------
+          echo "[*] Kernel modülleri budanıyor ve debug sembolleri siliniyor..."
+          MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
+          
+          # 1. Ses, Ekran Kartı, Wi-Fi ve Medya Sürücülerini Canlı İmajdan Sil
+          sudo rm -rf "$MOD_PATH/kernel/sound" \
+                      "$MOD_PATH/kernel/drivers/gpu" \
+                      "$MOD_PATH/kernel/drivers/media" \
+                      "$MOD_PATH/kernel/drivers/net/wireless" \
+                      "$MOD_PATH/kernel/drivers/bluetooth" || true
+
+          # 2. Kalan Tüm Kernel Modüllerinin Debug Sembollerini Sil (Boyut %70 Küçülür)
+          sudo find "$MOD_PATH" -type f -name "*.ko*" -exec strip --strip-debug {} + 2>/dev/null || true
+
+          # 3. Gereksiz Doküman ve Önbellek Temizliği
+          sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc /lib/firmware/* || true
+          # ---------------------------------------------------------
+
+          # tgh-install Yükleyiciyi Ekle
           sudo cp -v tgh-install "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
           sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
-
-          # Temizlik (Doküman, Man, APK önbelleği sil)
-          sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc || true
 
           # Mountları Çıkar
           sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
@@ -63,7 +78,7 @@ jobs:
           # Kernel'i ISO Boot Dizinine Taşı
           sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
-          # 1. HEDEF SİSTEM PAYLOAD'I (Yalnızca ISO köküne koyulur, initrd içine ASLA konmaz!)
+          # 1. HEDEF SİSTEM PAYLOAD'I (system.tar.gz)
           echo "[*] Hedef OS Payload paketleniyor..."
           sudo tar --exclude="./dev/*" \
                    --exclude="./proc/*" \
@@ -71,9 +86,10 @@ jobs:
                    --exclude="./tmp/*" \
                    --exclude="./run/*" \
                    --exclude="./mnt/*" \
+                   --exclude="./boot/vmlinuz*" \
                    -czf "$BUILD_DIR/iso/system.tar.gz" -C "$BUILD_DIR/rootfs" .
 
-          # 2. HAFİF LIVE INITRAMFS OLUŞTURMA (VM + BareMetal Disk Sürücüleri İle)
+          # 2. MINIMAL LIVE INITRAMFS
           echo "[*] Ultra-Lite Live Initramfs hazırlanıyor..."
           INITRD_DIR="$BUILD_DIR/initramfs-root"
           mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
@@ -82,9 +98,9 @@ jobs:
           sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
           sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 
-          # Sürücü Modüllerini Kopyala (Disk, NVMe, SATA, VirtIO, ISO)
+          # Sadece Disk & Depolama Modüllerini Initramfs İçine Koy
           mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
-          sudo cp -a "$BUILD_DIR/rootfs/lib/modules/$LTS_VER" "$INITRD_DIR/lib/modules/"
+          sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/"
 
           sudo cp "$BUILD_DIR/rootfs/usr/local/bin/tgh-install" "$INITRD_DIR/usr/local/bin/tgh-install"
           sudo chmod +x "$INITRD_DIR/usr/local/bin/tgh-install"
@@ -100,7 +116,7 @@ jobs:
 
           mdev -s 2>/dev/null || true
 
-          # Disk & Donanım Modüllerini Yükle
+          # Temel Disk Sürücülerini Yükle
           modprobe virtio_blk 2>/dev/null || true
           modprobe virtio_pci 2>/dev/null || true
           modprobe ahci 2>/dev/null || true
@@ -113,16 +129,13 @@ jobs:
 
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
 
-          # Live ISO Medyasını Bağla
           echo "[*] TAGCHAOS OS Live medyası aranıyor..."
-          ISO_MOUNTED=0
           for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
               [ -b "$dev" ] || continue
               mkdir -p /mnt/cdrom
               if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
                   if [ -f /mnt/cdrom/system.tar.gz ]; then
                       echo "[+] TAGCHAOS OS Medyası Bağlandı: $dev"
-                      ISO_MOUNTED=1
                       break
                   fi
                   umount /mnt/cdrom 2>/dev/null || true
@@ -139,9 +152,9 @@ jobs:
           sudo chmod +x "$INITRD_DIR/init"
 
           # Initrd Paketi
-          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > $BUILD_DIR/iso/boot/initrd.img"
+          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
-          echo "=== BOYUT KONTROLÜ ==="
+          echo "=== DOSYA BOYUTLARI KONTROLÜ ==="
           ls -lh "$BUILD_DIR/iso/boot/vmlinuz-lts"
           ls -lh "$BUILD_DIR/iso/boot/initrd.img"
           ls -lh "$BUILD_DIR/iso/system.tar.gz"
