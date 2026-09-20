@@ -46,7 +46,7 @@ jobs:
           sudo chroot "$BUILD_DIR/rootfs" apk update
           sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
               linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd \
-              linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath9k linux-firmware-ath10k
+              linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm
 
           LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
           MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
@@ -72,12 +72,13 @@ jobs:
             ! -name "wireless" \
             -exec rm -rf {} + || true
 
-          # Firmware temizliği: Sadece iwlwifi, rtlwifi, ath*.fw tut, gerisini sil
+          # Firmware temizliği: Sadece iwlwifi, rtlwifi, ath*, brcm* tut, gerisini sil
           echo "[*] Lüzumsuz firmware dosyaları siliniyor..."
           sudo find "$BUILD_DIR/rootfs/lib/firmware" -type f \
             ! -name "*iwlwifi*" \
             ! -name "*rtlwifi*" \
             ! -name "*ath*" \
+            ! -name "*brcm*" \
             -delete 2>/dev/null || true
 
           # Debug sembollerini temizle
