@@ -23,74 +23,42 @@ sudo mount --bind /proc "$BUILD_DIR/rootfs/proc"
 sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
 sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-# Paketler
+# Temel Sistem ve Kurulum Araçları
 sudo chroot "$BUILD_DIR/rootfs" apk update
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
-    build-base cmake make gcc g++ musl-dev libx11-dev xorg-server xf86-video-vesa xf86-video-modesetting \
-    xf86-input-libinput xterm xinit tzdata dbus shadow \
-    tint2 rofi feh picom font-dejavu \
+    tzdata dbus shadow parted sfdisk neofetch bash \
     linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
 MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
 
-# C Pencere Yöneticisi Derleme
-if [ -f tgh-wm.c ]; then
-    sudo cp tgh-wm.c "$BUILD_DIR/rootfs/tmp/tgh-wm.c"
-    sudo chroot "$BUILD_DIR/rootfs" sh -c "gcc -O2 /tmp/tgh-wm.c -lX11 -o /usr/local/bin/tgh-wm"
-    sudo rm "$BUILD_DIR/rootfs/tmp/tgh-wm.c"
-fi
-
-# Kurulum Betiği
+# Kurulum Betiğini Yerleştir
 if [ -f tgh-install ]; then
     sudo cp tgh-install "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
     sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
 fi
 
-# xinitrc Yapılandırması
-if [ -f xinitrc ]; then
-    sudo cp xinitrc "$BUILD_DIR/rootfs/etc/X11/xinit/xinitrc"
-    sudo chmod +x "$BUILD_DIR/rootfs/etc/X11/xinit/xinitrc"
-fi
+# Özel TAGCHAOS OS MOTD Karşılama Ekranı
+sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/motd
 
-# Tint2 Görev Çubuğu Konfigürasyonu
-sudo mkdir -p "$BUILD_DIR/rootfs/etc/skel/.config/tint2" "$BUILD_DIR/rootfs/root/.config/tint2"
-sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc
-panel_position = bottom center horizontal
-panel_size = 100% 36
-panel_margin = 0 0
-panel_padding = 4 2 4
-panel_background_id = 1
-wm_menu = 1
-panel_dock = 0
-background_color = #0f172a 100
-border_color = #3b82f6 100
-border_width = 1
-taskbar_mode = single_desktop
-taskbar_padding = 2 0 2
-taskbar_background_id = 0
-task_icon = 1
-task_text = 1
-task_maximum_size = 180 32
-task_padding = 4 2
-task_font = sans 9
-task_font_color = #f8fafc 100
-task_background_id = 0
-time1_format = %H:%M:%S
-time1_font = sans bold 10
-time2_format = %d.%m.%Y
-time2_font = sans 8
-clock_font_color = #38bdf8 100
-clock_padding = 8 8
-clock_background_id = 0
-tooltip_show_timeout = 0.5
-tooltip_hide_timeout = 0.1
-tooltip_font = sans 9
+  _____  _    ____ ____ _   _  _   U  ___ u ____     U  ___ u ____   
+ |_   _||\"a  / ___/ ___|  |\"| | |  \/"_ \/  _\"\    \/"_ \/ ___|  
+   | |  |  _|| |  | |  |_|  |_| |  | | | | | | |   | | | \___ \  
+  /| |\ | |__| |__| |__| |   _  |  | |_| | |_| |  /| |_| |___) | 
+ u |_|U |____\____\____|_|  |_| |   \___/ \____/  u \___/|____/  
+
+ =================================================================
+          Welcome to TAGCHAOS OS Universal System!
+ =================================================================
+   * To Start System Installer : tgh-install
+   * To Connect Wi-Fi         : iwctl
+   * Package Manager          : apk
+ =================================================================
+
 EOF"
-sudo cp "$BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc" "$BUILD_DIR/rootfs/root/.config/tint2/tint2rc"
 
-# TTY1 Autologin
+# Autologin
 sudo tee "$BUILD_DIR/rootfs/usr/bin/autologin" << 'EOF'
 #!/bin/sh
 exec /bin/login -f root
@@ -102,7 +70,7 @@ sudo sed -i 's|tty1::respawn:/sbin/getty.*|tty1::respawn:/sbin/getty -n -l /usr/
 sudo chroot "$BUILD_DIR/rootfs" rc-update add iwd default 2>/dev/null || true
 sudo chroot "$BUILD_DIR/rootfs" rc-update add dbus default 2>/dev/null || true
 
-# Umount
+# Mount Temizliği
 sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
 
 # Çekirdek
@@ -183,11 +151,15 @@ sudo chmod +x "$INITRD_DIR/init"
 
 sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
-# GRUB Yapılandırma ve ISO Oluşturma
+# GRUB Yapılandırma ve ISO Açılış Menüsü
 cat << 'EOF' > "$BUILD_DIR/iso/boot/grub/grub.cfg"
-set timeout=3
+set timeout=5
 set default=0
-menuentry "TAGCHAOS OS Universal Desktop" {
+
+insmod all_video
+insmod gfxterm
+
+menuentry "TAGCHAOS OS - Live Installer" {
     linux /boot/vmlinuz-lts quiet
     initrd /boot/initrd.img
 }
