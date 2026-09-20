@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Universal Slim ISO Builder
+name: TAGCHAOS OS Lean Universal ISO
 
 on:
   push:
@@ -15,73 +15,62 @@ jobs:
       - name: Sistem Araçlarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux
+          sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync
 
-      - name: Rootfs, Kernel ve Payload Hazırlığı
+      - name: Lean Rootfs ve Payload Hazırlığı
         run: |
           set -e
-          mkdir -p build-root/rootfs build-root/iso/boot/grub dist
+          mkdir -p work/rootfs work/iso/boot/grub work/dist work/clean-payload
           
           ALPINE_VER="3.20.3"
           echo "[*] Alpine minirootfs indiriliyor..."
           wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-${ALPINE_VER}-x86_64.tar.gz" -O alpine.tar.gz
-          tar -xzf alpine.tar.gz -C build-root/rootfs
+          tar -xzf alpine.tar.gz -C work/rootfs
           rm alpine.tar.gz
 
-          sudo cp /etc/resolv.conf build-root/rootfs/etc/resolv.conf
-          sudo bash -c 'cat << 'EOF' > build-root/rootfs/etc/apk/repositories
+          sudo cp /etc/resolv.conf work/rootfs/etc/resolv.conf
+          sudo bash -c 'cat << 'EOF' > work/rootfs/etc/apk/repositories
           https://dl-cdn.alpinelinux.org/alpine/v3.20/main
           https://dl-cdn.alpinelinux.org/alpine/v3.20/community
           EOF'
 
-          # Donanım sürücüleri, LTS kernel ve mkinitfs mühürle
-          sudo mount --bind /proc build-root/rootfs/proc
-          sudo mount --bind /sys build-root/rootfs/sys
-          sudo mount --bind /dev build-root/rootfs/dev
-          sudo chroot build-root/rootfs apk update
-          sudo chroot build-root/rootfs apk add linux-lts mkinitfs util-linux e2fsprogs grub grub-bios eudev e2fsprogs-extra
+          sudo mount --bind /proc work/rootfs/proc
+          sudo mount --bind /sys work/rootfs/sys
+          sudo mount --bind /dev work/rootfs/dev
+          
+          sudo chroot work/rootfs apk update
+          sudo chroot work/rootfs apk add linux-lts mkinitfs util-linux e2fsprogs grub grub-bios eudev rsync
 
-          # Kernel sürümünü bul ve initramfs üret (<15MB)
-          LTS_VER=$(ls build-root/rootfs/lib/modules | tail -n 1)
-          sudo chroot build-root/rootfs mkinitfs -o /boot/initramfs-lts "$LTS_VER"
+          LTS_VER=$(ls work/rootfs/lib/modules | tail -n 1)
+          sudo chroot work/rootfs mkinitfs -o /boot/initramfs-lts "$LTS_VER"
 
-          # Temizlik: APK cache ve docs budama
-          sudo chroot build-root/rootfs apk cache clean || true
-          sudo rm -rf build-root/rootfs/var/cache/apk/* build-root/rootfs/usr/share/man build-root/rootfs/usr/share/doc
+          # Agresif temizlik
+          sudo chroot work/rootfs apk cache clean || true
+          sudo rm -rf work/rootfs/var/cache/apk/* work/rootfs/usr/share/man work/rootfs/usr/share/doc
 
-          sudo umount build-root/rootfs/proc build-root/rootfs/sys build-root/rootfs/dev
+          sudo umount work/rootfs/proc work/rootfs/sys work/rootfs/dev
 
-          # Kernel ve initramfs ISO boot dizinine taşı
-          sudo cp build-root/rootfs/boot/vmlinuz-lts build-root/iso/boot/vmlinuz-lts
-          sudo cp build-root/rootfs/boot/initramfs-lts build-root/iso/boot/initramfs-lts
+          # Kernel & Initrd ISO boot dizinine taşı
+          sudo cp work/rootfs/boot/vmlinuz-lts work/iso/boot/vmlinuz-lts
+          sudo cp work/rootfs/boot/initramfs-lts work/iso/boot/initramfs-lts
 
-          # tgh-install ekle (canlı ortama)
-          sudo mkdir -p build-root/rootfs/usr/local/bin
-          sudo cp -v tgh-install build-root/rootfs/usr/local/bin/tgh-install
-          sudo chmod +x build-root/rootfs/usr/local/bin/tgh-install
+          # tgh-install ekle
+          sudo mkdir -p work/rootfs/usr/local/bin
+          sudo cp -v tgh-install work/rootfs/usr/local/bin/tgh-install
+          sudo chmod +x work/rootfs/usr/local/bin/tgh-install
 
-          # Temiz bir target rootfs tarball üret (hedef diske açılacak altın kopya)
-          sudo mkdir -p build-root/target-root
-          sudo cp -a build-root/rootfs/* build-root/target-root/
-          sudo rm -rf build-root/target-root/dev/* build-root/target-root/proc/* build-root/target-root/sys/* build-root/target-root/run/* build-root/target-root/tmp/*
-          sudo mkdir -p build-root/target-root/dev build-root/target-root/proc build-root/target-root/sys build-root/target-root/run build-root/target-root/tmp build-root/target-root/mnt
+          # İzole payload üret (Şişme yapmaz)
+          sudo rsync -a --exclude={'dev/*','proc/*','sys/*','run/*','tmp/*','mnt/*'} work/rootfs/ work/clean-payload/
+          sudo mkdir -p work/clean-payload/dev work/clean-payload/proc work/clean-payload/sys work/clean-payload/run work/clean-payload/tmp work/clean-payload/mnt
 
-          # Payload'ı ISO köküne koy
-          sudo tar -czf build-root/iso/rootfs.tar.gz -C build-root/target-root .
-
-          # Initramfs içine tgh-install ve payload erişimi/yardımcısı ekle
-          sudo mkdir -p build-root/initrd-extract
-          sudo bash -c 'cd build-root/initrd-extract && zcat ../iso/boot/initramfs-lts | cpio -idm --quiet'
-          sudo mkdir -p build-root/initrd-extract/usr/local/bin build-root/initrd-extract/mnt/cdrom
-          sudo cp -v tgh-install build-root/initrd-extract/usr/local/bin/tgh-install
-          sudo cp -v build-root/iso/rootfs.tar.gz build-root/initrd-extract/rootfs.tar.gz
-          sudo chmod +x build-root/initrd-extract/usr/local/bin/tgh-install
-          sudo bash -c 'cd build-root/initrd-extract && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > ../iso/boot/initramfs-lts'
+          sudo tar -czf work/iso/rootfs.tar.gz -C work/clean-payload .
+          sudo cp work/iso/rootfs.tar.gz work/rootfs/rootfs.tar.gz
+          ls -lh work/iso/rootfs.tar.gz
 
       - name: GRUB Konfigürasyonu ve ISO Paketi
         run: |
           set -e
-          cat << 'EOF' > build-root/iso/boot/grub/grub.cfg
+          cat << 'EOF' > work/iso/boot/grub/grub.cfg
           set timeout=3
           set default=0
           menuentry "TAGCHAOS OS (Live / Install)" {
@@ -90,14 +79,13 @@ jobs:
           }
           EOF
 
-          mkdir -p dist
-          sudo chmod -R 755 build-root/iso
-          sudo grub-mkrescue -o dist/tagchaos-os.iso build-root/iso
-          sudo chown -R $USER:$USER dist/
-          ls -lh dist/tagchaos-os.iso
+          sudo chmod -R 755 work/iso
+          sudo grub-mkrescue -o work/dist/tagchaos-os.iso work/iso
+          sudo chown -R $USER:$USER work/dist/
+          ls -lh work/dist/tagchaos-os.iso
 
       - name: Yapıtları Kaydet
         uses: actions/upload-artifact@v4
         with:
           name: tagchaos-os
-          path: dist/tagchaos-os.iso
+          path: work/dist/tagchaos-os.iso
