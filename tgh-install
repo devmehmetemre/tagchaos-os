@@ -30,7 +30,7 @@ if [ "$CONFIRM" != "YES" ]; then
     exit 0
 fi
 
-echo "[*] Disk bölümlendiriliyor..."
+echo "[*] Disk bölümlendiriliyor (MBR/Legacy)..."
 printf "o\nn\np\n1\n\n\na\n1\nw\n" | fdisk "$TARGET_DISK" || true
 
 PART="${TARGET_DISK}1"
@@ -63,7 +63,7 @@ tar -xf "$PAYLOAD" -C "$MOUNT_DIR/"
 
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
 
-echo "[*] GRUB ön yükleyici diske kuruluyor..."
+echo "[*] Ön yükleyici ve çekirdek yapılandırılıyor..."
 mount --bind /dev "$MOUNT_DIR/dev"
 mount --bind /proc "$MOUNT_DIR/proc"
 mount --bind /sys "$MOUNT_DIR/sys"
