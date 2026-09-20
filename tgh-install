@@ -1,5 +1,5 @@
 #!/bin/sh
-# TAGCHAOS OS - Advanced Universal TUI Installer
+# TAGCHAOS OS - Offline Universal TUI Installer
 set -e
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -70,6 +70,7 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
 
 # 7. Kurulum İşlemi
 (
+    set -e
     echo "10"; echo "XXX\nDisk MBR olarak bölümlendiriliyor... \nXXX"
     dd if=/dev/zero of="$TARGET_DISK" bs=1M count=10 status=none
     parted -s "$TARGET_DISK" mklabel msdos
@@ -89,35 +90,40 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
     mkdir -p "$MOUNT_DIR"
     mount "$PART" "$MOUNT_DIR"
 
-    echo "45"; echo "XXX\nAna sistem dosyaları diske kopyalanıyor... \nXXX"
+    echo "40"; echo "XXX\nTüm sistem dosyaları ve paketler diske açılıyor... \nXXX"
     if [ -f /mnt/cdrom/system.tar.xz ]; then
         tar -xf /mnt/cdrom/system.tar.xz -C "$MOUNT_DIR/"
     elif [ -f /system.tar.xz ]; then
         tar -xf /system.tar.xz -C "$MOUNT_DIR/"
     fi
 
-    echo "60"; echo "XXX\nfstab ve Sanal Sürücüler Yapılandırılıyor... \nXXX"
+    echo "65"; echo "XXX\nAğ ve Sistem Yapılandırması Yapılıyor... \nXXX"
     UUID=$(blkid -s UUID -o value "$PART")
-    mkdir -p "$MOUNT_DIR/etc"
+    mkdir -p "$MOUNT_DIR/etc/apk"
     echo "UUID=$UUID  /  ext4  rw,relatime,errors=remount-ro  0  1" > "$MOUNT_DIR/etc/fstab"
+
+    cat << 'EOF' > "$MOUNT_DIR/etc/apk/repositories"
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+EOF
 
     mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev"
     mount --bind /dev "$MOUNT_DIR/dev"
     mount --bind /proc "$MOUNT_DIR/proc"
     mount --bind /sys "$MOUNT_DIR/sys"
 
-    echo "70"; echo "XXX\nSeçilen Masaüstü Ortamı ($DE_CHOICE) Kuruluyor... \nXXX"
+    echo "75"; echo "XXX\nSeçilen Masaüstü Ortamı Servisleri Etkinleştiriliyor... \nXXX"
+    chroot "$MOUNT_DIR" rc-update add iwd default 2>/dev/null || true
+    chroot "$MOUNT_DIR" rc-update add dbus default 2>/dev/null || true
+
     case "$DE_CHOICE" in
         "XFCE4")
-            chroot "$MOUNT_DIR" apk add --no-cache xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa xfce4 xfce4-terminal lightdm lightdm-gtk-greeter dbus
             chroot "$MOUNT_DIR" rc-update add lightdm default 2>/dev/null || true
             ;;
         "PLASMA")
-            chroot "$MOUNT_DIR" apk add --no-cache xorg-server plasma desktop-testing sddm dbus
             chroot "$MOUNT_DIR" rc-update add sddm default 2>/dev/null || true
             ;;
         "GNOME")
-            chroot "$MOUNT_DIR" apk add --no-cache xorg-server gnome gdm dbus
             chroot "$MOUNT_DIR" rc-update add gdm default 2>/dev/null || true
             ;;
         "CLI")
@@ -136,7 +142,7 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
     echo "$USERNAME:$USER_PASS" | chroot "$MOUNT_DIR" chpasswd
     chroot "$MOUNT_DIR" addgroup "$USERNAME" wheel 2>/dev/null || true
 
-    # Kök disk ve dosya sistemi modüllerini mkinitfs'e zorla ekliyoruz
+    # Initramfs modülleri
     mkdir -p "$MOUNT_DIR/etc/mkinitfs"
     echo 'features="base ata ide scsi ext4 nvme virtio kms"' > "$MOUNT_DIR/etc/mkinitfs/mkinitfs.conf"
 
@@ -144,10 +150,8 @@ dialog --clear --title "UYARI - Disk Biçimlendirilecek" \
     chroot "$MOUNT_DIR" mkinitfs -k "$KERNEL_VER" -o "/boot/initramfs-lts"
 
     echo "95"; echo "XXX\nGRUB MBR Diske Enjekte Ediliyor... \nXXX"
-    # GRUB önyükleyici modüllerini diske yaz
     chroot "$MOUNT_DIR" grub-install --target=i386-pc --boot-directory=/boot --recheck --force "$TARGET_DISK"
 
-    # Kesin çalışan GRUB yapılandırması
     chroot "$MOUNT_DIR" sh -c "cat << 'EOF' > /boot/grub/grub.cfg
 set timeout=3
 set default=0
@@ -170,5 +174,5 @@ EOF"
     sleep 1
 ) | dialog --title "TAGCHAOS OS Kuruluyor" --gauge "Lütfen bekleyin, sistem kuruluyor..." 10 65 0
 
-dialog --clear --title "BAŞARILI" --msgbox "TAGCHAOS OS diske başarıyla kuruldu!\n\nSanal makineden ISO'yu (CD/DVD) çıkarın ve 'reboot' yazarak yeniden başlatın." 10 60
+dialog --clear --title "BAŞARILI" --msgbox "TAGCHAOS OS tamamen çevrimdışı (offline) olarak kuruldu!\n\nSanal makineden ISO'yu çıkarın ve 'reboot' yazarak yeniden başlatın." 10 60
 clear
