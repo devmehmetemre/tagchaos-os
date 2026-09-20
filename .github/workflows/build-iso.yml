@@ -84,8 +84,14 @@ jobs:
 
           EOF
 
-          # TTY1 Otomatik Root Girişi
-          sudo sed -i 's/tty1::respawn:\/sbin\/getty/tty1::respawn:\/sbin\/getty -a root/' "$BUILD_DIR/rootfs/etc/inittab" 2>/dev/null || true
+          # TTY1 Otomatik Root Girişi (BusyBox Uyumlu Autologin)
+          sudo tee "$BUILD_DIR/rootfs/usr/bin/autologin" << 'EOF'
+          #!/bin/sh
+          exec /bin/login -f root
+          EOF
+          sudo chmod +x "$BUILD_DIR/rootfs/usr/bin/autologin"
+
+          sudo sed -i 's|tty1::respawn:/sbin/getty.*|tty1::respawn:/sbin/getty -n -l /usr/bin/autologin 38400 tty1|' "$BUILD_DIR/rootfs/etc/inittab"
 
           # Servisler
           sudo chroot "$BUILD_DIR/rootfs" rc-update add iwd default 2>/dev/null || true
