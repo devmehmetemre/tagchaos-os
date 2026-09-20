@@ -23,7 +23,7 @@ sudo mount --bind /proc "$BUILD_DIR/rootfs/proc"
 sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
 sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-# Temel Sistem ve Kurulum Araçları
+# Temel Sistem ve Disk/Boot Araçları
 sudo chroot "$BUILD_DIR/rootfs" apk update
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
