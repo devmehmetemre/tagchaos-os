@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Final Universal Builder (Wi-Fi + SD/USB + Disk Installer)
+name: TAGCHAOS OS Final Fix (RAM Boot + VirtualBox Support)
 
 on:
   push:
@@ -52,11 +52,11 @@ jobs:
           MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
 
           # ---------------------------------------------------------
-          # KONTROLLÜ SÜRÜCÜ VE FIRMWARE TEMİZLİĞİ
+          # SÜRÜCÜ VE FIRMWARE FİLTRELEME
           # ---------------------------------------------------------
-          echo "[*] Gereksiz modüller ve devasa GPU/Ses firmware'leri temizleniyor..."
+          echo "[*] Temizlik yapılıyor..."
           
-          # drivers/ altından sadece depolama, ağ, USB, SD kart ve sanallaştırma modüllerini tut
+          # Depolama, Ağ, USB, SD Kart ve Sanallaştırma Sürücülerini Koru
           sudo find "$MOD_PATH/kernel/drivers" -maxdepth 1 -mindepth 1 \
             ! -name "net" \
             ! -name "block" \
@@ -68,12 +68,12 @@ jobs:
             ! -name "usb" \
             -exec rm -rf {} + || true
 
-          # Ethernet dışı kablosuz ağ sürücülerini koru
+          # Kablosuz Ağ Sürücülerini Koru
           sudo find "$MOD_PATH/kernel/drivers/net" -maxdepth 1 -mindepth 1 \
             ! -name "wireless" \
             -exec rm -rf {} + || true
 
-          # Sadece Wi-Fi firmware dosyalarını sakla
+          # Sadece Wi-Fi Firmware Dosyalarını Sakla
           sudo find "$BUILD_DIR/rootfs/lib/firmware" -type f \
             ! -name "*iwlwifi*" \
             ! -name "*rtlwifi*" \
@@ -81,7 +81,6 @@ jobs:
             ! -name "*brcm*" \
             -delete 2>/dev/null || true
 
-          # Debug Sembollerini Temizle
           sudo find "$MOD_PATH" -type f -name "*.ko*" -exec strip --strip-debug {} + 2>/dev/null || true
           sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc || true
           # ---------------------------------------------------------
@@ -107,13 +106,12 @@ jobs:
                    --exclude="./boot/vmlinuz*" \
                    -cJf "$BUILD_DIR/iso/system.tar.xz" -C "$BUILD_DIR/rootfs" .
 
-          # 2. CANLI SİSTEM İÇİN INITRAMFS
+          # 2. RAM BOOT INITRAMFS
           echo "[*] Live Initramfs oluşturuluyor..."
           INITRD_DIR="$BUILD_DIR/initramfs-root"
           mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
                    "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/usr/local/bin" "$INITRD_DIR/lib"
 
-          # Busybox ve Çalışması İçin Şart Olan Musl Bağlayıcı Kütüphanelerini Kopyala
           sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
           sudo cp -a "$BUILD_DIR/rootfs/lib/ld-musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
           sudo cp -a "$BUILD_DIR/rootfs/lib/libc.musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
@@ -123,10 +121,7 @@ jobs:
           mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
           sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/" || true
 
-          sudo cp "$BUILD_DIR/rootfs/usr/local/bin/tgh-install" "$INITRD_DIR/usr/local/bin/tgh-install"
-          sudo chmod +x "$INITRD_DIR/usr/local/bin/tgh-install"
-
-          # Init Script
+          # Init Script (Full RAM Boot Switch)
           sudo tee "$INITRD_DIR/init" << 'EOF'
           #!/bin/sh
           mount -t proc none /proc
@@ -135,15 +130,15 @@ jobs:
           mkdir -p /dev/pts
           mount -t devpts devpts /dev/pts 2>/dev/null || true
 
-          mdev -s 2>/dev/null || true
-
-          # Tüm Depolama ve Veri Yolu Sürücülerini Yükle
-          modprobe virtio_blk 2>/dev/null || true
-          modprobe virtio_pci 2>/dev/null || true
+          # VirtualBox, IDE, SATA, NVMe & USB Sürücüleri
+          modprobe ata_piix 2>/dev/null || true
+          modprobe pata_acpi 2>/dev/null || true
           modprobe ahci 2>/dev/null || true
           modprobe ata_generic 2>/dev/null || true
           modprobe sd_mod 2>/dev/null || true
           modprobe sr_mod 2>/dev/null || true
+          modprobe virtio_blk 2>/dev/null || true
+          modprobe virtio_pci 2>/dev/null || true
           modprobe nvme 2>/dev/null || true
           modprobe uas 2>/dev/null || true
           modprobe usb_storage 2>/dev/null || true
@@ -153,35 +148,55 @@ jobs:
           modprobe isofs 2>/dev/null || true
           modprobe ext4 2>/dev/null || true
 
-          export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
-
-          echo "[*] TAGCHAOS OS Medyası taranıyor..."
+          mdev -s 2>/dev/null || true
           sleep 2
           mdev -s 2>/dev/null || true
 
+          echo "[*] TAGCHAOS OS Live medyası aranıyor..."
+          FOUND_DEV=""
           for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
               [ -b "$dev" ] || continue
               mkdir -p /mnt/cdrom
               if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-                  if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
-                      echo "[+] TAGCHAOS OS Medyası Bulundu ve Bağlandı: $dev"
+                  if [ -f /mnt/cdrom/system.tar.xz ]; then
+                      echo "[+] Live Medya Bulundu: $dev"
+                      FOUND_DEV="$dev"
                       break
                   fi
                   umount /mnt/cdrom 2>/dev/null || true
               fi
           done
 
-          clear
-          echo "=================================================="
-          echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
-          echo "    Diske Kurulum İçin : tgh-install               "
-          echo "    Wi-Fi Bağlantısı   : iwctl                     "
-          echo "=================================================="
+          if [ -n "$FOUND_DEV" ]; then
+              echo "[*] Sistem RAM'e yükleniyor..."
+              mkdir -p /sysroot
+              mount -t tmpfs -o size=80% tmpfs /sysroot
+              tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
+
+              mkdir -p /sysroot/mnt/cdrom
+              mount --move /mnt/cdrom /sysroot/mnt/cdrom
+              mount --move /dev /sysroot/dev
+              mount --move /proc /sysroot/proc
+              mount --move /sys /sysroot/sys
+
+              exec switch_root /sysroot /bin/sh -c '
+                  clear
+                  echo "=================================================="
+                  echo "    TAGCHAOS OS (Live RAM System) v1.0            "
+                  echo "    Diske Kurulum İçin : tgh-install               "
+                  echo "    Wi-Fi Bağlantısı   : iwctl                     "
+                  echo "    Paket Yöneticisi   : apk                       "
+                  echo "=================================================="
+                  exec /bin/sh
+              '
+          fi
+
+          echo "[!] HATA: Canlı medya bulunamadı!"
           exec /bin/sh
           EOF
           sudo chmod +x "$INITRD_DIR/init"
 
-          # Initrd Sıkıştırma (Standart Gzip - Maksimum Uyumluluk)
+          # Initrd Sıkıştırma
           sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
       - name: GRUB Yapılandırma ve ISO Derleme
