@@ -72,7 +72,7 @@ sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/motd
 
 EOF"
 
-# Autologin
+# Autologin Yapılandırması
 sudo tee "$BUILD_DIR/rootfs/usr/bin/autologin" << 'EOF'
 #!/bin/sh
 exec /bin/login -f root
@@ -83,7 +83,7 @@ sudo sed -i 's|tty1::respawn:/sbin/getty.*|tty1::respawn:/sbin/getty -n -l /usr/
 # Mount Temizliği
 sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
 
-# Çekirdek
+# Çekirdek Kopyalama
 sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
 # Rootfs Paketleme
@@ -96,24 +96,25 @@ sudo tar --exclude="./dev/*" --exclude="./proc/*" --exclude="./sys/*" \
 # Live Initramfs Yapılandırması
 INITRD_DIR="$BUILD_DIR/initramfs-root"
 mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
-         "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/lib"
+         "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/lib" "$INITRD_DIR/sysroot"
 
+# Busybox ve Kütüphanelerin Kopyalanması
 sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
-sudo cp -a "$BUILD_DIR/rootfs/lib/ld-musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
-sudo cp -a "$BUILD_DIR/rootfs/lib/libc.musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
+sudo cp -a "$BUILD_DIR/rootfs/lib/"* "$INITRD_DIR/lib/" 2>/dev/null || true
 
 sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 
 mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
 sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/" || true
 
-# Init Script
+# Init Script (Hata Korumalı ve Esnek Init Başlatıcı)
 sudo tee "$INITRD_DIR/init" << 'EOF'
 #!/bin/sh
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t devtmpfs none /dev 2>/dev/null || true
 
+# Disk ve Dosya Sistemi Modülleri
 modprobe ata_piix 2>/dev/null || true
 modprobe ahci 2>/dev/null || true
 modprobe sd_mod 2>/dev/null || true
@@ -124,6 +125,7 @@ modprobe nvme 2>/dev/null || true
 modprobe usb_storage 2>/dev/null || true
 modprobe isofs 2>/dev/null || true
 modprobe ext4 2>/dev/null || true
+modprobe overlay 2>/dev/null || true
 
 mdev -s 2>/dev/null || true
 sleep 2
@@ -141,7 +143,7 @@ for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
     fi
 done
 
-if [ -n "$FOUND_DEV" ]; then
+if [ -n "$FOUND_DEV" ] && [ -f /mnt/cdrom/system.tar.xz ]; then
     mkdir -p /sysroot
     mount -t tmpfs -o size=85% tmpfs /sysroot
     tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
@@ -152,13 +154,28 @@ if [ -n "$FOUND_DEV" ]; then
     mount --move /proc /sysroot/proc
     mount --move /sys /sysroot/sys
 
-    exec switch_root /sysroot /sbin/init
+    INIT_BIN=""
+    if [ -x /sysroot/sbin/init ]; then
+        INIT_BIN="/sbin/init"
+    elif [ -x /sysroot/sbin/openrc-init ]; then
+        INIT_BIN="/sbin/openrc-init"
+    elif [ -x /sysroot/bin/busybox ]; then
+        INIT_BIN="/bin/busybox"
+    fi
+
+    if [ -n "$INIT_BIN" ]; then
+        exec switch_root /sysroot "$INIT_BIN"
+    fi
 fi
 
-exec /bin/sh
+echo "[!] HATA: Live ISO arşivi veya init başlatıcısı bulunamadı!"
+while true; do
+    /bin/sh
+done
 EOF
 sudo chmod +x "$INITRD_DIR/init"
 
+# Initramfs Sıkıştırma
 sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
 # GRUB Yapılandırması
@@ -178,3 +195,5 @@ EOF
 sudo chmod -R 755 "$BUILD_DIR/iso"
 sudo grub-mkrescue -o dist/tagchaos-os.iso "$BUILD_DIR/iso"
 sudo chown -R $USER:$USER dist/
+
+echo "[+] ISO Derleme Başarıyla Tamamlandı: dist/tagchaos-os.iso"
