@@ -23,12 +23,16 @@ sudo mount --bind /proc "$BUILD_DIR/rootfs/proc"
 sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
 sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-# Temel Sistem ve Disk/Boot Araçları
+echo "[*] Tüm sistem ve Masaüstü paketleri indiriliyor (Offline ISO hazırlanıyor)..."
 sudo chroot "$BUILD_DIR/rootfs" apk update
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
     tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
-    linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm
+    linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm \
+    xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa \
+    xfce4 xfce4-terminal lightdm lightdm-gtk-greeter \
+    plasma desktop-testing sddm \
+    gnome gdm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
 MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
@@ -59,10 +63,6 @@ exec /bin/login -f root
 EOF
 sudo chmod +x "$BUILD_DIR/rootfs/usr/bin/autologin"
 sudo sed -i 's|tty1::respawn:/sbin/getty.*|tty1::respawn:/sbin/getty -n -l /usr/bin/autologin 38400 tty1|' "$BUILD_DIR/rootfs/etc/inittab"
-
-# Servisler
-sudo chroot "$BUILD_DIR/rootfs" rc-update add iwd default 2>/dev/null || true
-sudo chroot "$BUILD_DIR/rootfs" rc-update add dbus default 2>/dev/null || true
 
 # Mount Temizliği
 sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
