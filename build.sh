@@ -23,17 +23,32 @@ sudo mount --bind /proc "$BUILD_DIR/rootfs/proc"
 sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
 sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-echo "[*] Tüm sistem ve Masaüstü paketleri indiriliyor (Offline ISO hazırlanıyor)..."
+echo "[*] Temel sistem ve font paketleri kuruluyor..."
 sudo chroot "$BUILD_DIR/rootfs" apk update
-# desktop-testing paketi kaldırılarak plasma-desktop eklendi
+
+# Temel Sistem Paketleri
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
     tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
+    font-dejavu font-noto
+
+# Ekran Kartı & Sürücüler
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm \
-    xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa \
-    xfce4 xfce4-terminal lightdm lightdm-gtk-greeter \
-    plasma-desktop sddm \
-    gnome gdm
+    xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa
+
+echo "[*] Masaüstü ortamları indiriliyor (Offline ISO)..."
+# XFCE4 & LightDM
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+    xfce4 xfce4-terminal lightdm lightdm-gtk-greeter
+
+# KDE Plasma & SDDM
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+    plasma-desktop sddm
+
+# GNOME (Çakışmaları önlemek için temel paketler halinde çekiliyor)
+sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
+    gnome-shell gnome-terminal gdm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
 MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
