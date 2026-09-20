@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Universal & Lite ISO Builder
+name: TAGCHAOS OS Universal Desktop ISO Builder
 
 on:
   push:
@@ -42,25 +42,26 @@ jobs:
           sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
           sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # Sistem Paketleri ve Native C Derleme Bileşenleri
+          # Masaüstü ve Sistem Paketleri (Tint2, Rofi, Feh, Picom)
           sudo chroot "$BUILD_DIR/rootfs" apk update
           sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
               linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
               build-base cmake make gcc g++ musl-dev libx11-dev xorg-server xf86-video-vesa xf86-video-modesetting \
-              xf86-input-libinput xterm xinit wayland-dev wlroots-dev tzdata dbus shadow \
+              xf86-input-libinput xterm xinit tzdata dbus shadow \
+              tint2 rofi feh picom font-dejavu \
               linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm
 
           LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
           MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
 
-          # C Pencere Yöneticisini Derle ve Yerleştir
+          # C Pencere Yöneticisini Derle
           if [ -f tgh-wm.c ]; then
               sudo cp tgh-wm.c "$BUILD_DIR/rootfs/tmp/tgh-wm.c"
               sudo chroot "$BUILD_DIR/rootfs" sh -c "gcc -O2 /tmp/tgh-wm.c -lX11 -o /usr/local/bin/tgh-wm"
               sudo rm "$BUILD_DIR/rootfs/tmp/tgh-wm.c"
           fi
 
-          # Kurulum Betiği ve Masaüstü Başlatıcı
+          # Scriptler
           sudo cp tgh-install "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
           sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
 
@@ -69,28 +70,59 @@ jobs:
               sudo chmod +x "$BUILD_DIR/rootfs/etc/X11/xinit/xinitrc"
           fi
 
-          # Karşılama Ekranı (MOTD)
-          sudo tee "$BUILD_DIR/rootfs/etc/motd" << 'EOF'
+          # Tint2 Görev Çubuğu Konfigürasyonu
+          sudo mkdir -p "$BUILD_DIR/rootfs/etc/skel/.config/tint2" "$BUILD_DIR/rootfs/root/.config/tint2"
+          sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc
+# TAGCHAOS OS Panel Config
+panel_position = bottom center horizontal
+panel_size = 100% 36
+panel_margin = 0 0
+panel_padding = 4 2 4
+panel_background_id = 1
+wm_menu = 1
+panel_dock = 0
 
-          =================================================================
-              TAGCHAOS OS - Saf Terminal & Native C/C++ Masaüstü Sahası
-          =================================================================
-            - Diske Kurulum Aracı (TUI) : tgh-install
-            - C Masaüstünü Başlat        : startx
-            - Wi-Fi Bağlantı Yönetimi   : iwctl
-            - Paket Yöneticisi          : apk
-            - Derleyici                 : gcc / g++ / make
-          =================================================================
+# Backgrounds
+background_color = #0f172a 100
+border_color = #3b82f6 100
+border_width = 1
 
-          EOF
+# Taskbar
+taskbar_mode = single_desktop
+taskbar_padding = 2 0 2
+taskbar_background_id = 0
+
+# Task Properties
+task_icon = 1
+task_text = 1
+task_maximum_size = 180 32
+task_padding = 4 2
+task_font = sans 9
+task_font_color = #f8fafc 100
+task_background_id = 0
+
+# Clock
+time1_format = %H:%M:%S
+time1_font = sans bold 10
+time2_format = %d.%m.%Y
+time2_font = sans 8
+clock_font_color = #38bdf8 100
+clock_padding = 8 2
+clock_background_id = 0
+
+# Tooltip
+tooltip_show_timeout = 0.5
+tooltip_hide_timeout = 0.1
+tooltip_font = sans 9
+EOF"
+          sudo cp "$BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc" "$BUILD_DIR/rootfs/root/.config/tint2/tint2rc"
 
           # TTY1 Otomatik Root Girişi (BusyBox Uyumlu Autologin)
           sudo tee "$BUILD_DIR/rootfs/usr/bin/autologin" << 'EOF'
-          #!/bin/sh
-          exec /bin/login -f root
-          EOF
+#!/bin/sh
+exec /bin/login -f root
+EOF
           sudo chmod +x "$BUILD_DIR/rootfs/usr/bin/autologin"
-
           sudo sed -i 's|tty1::respawn:/sbin/getty.*|tty1::respawn:/sbin/getty -n -l /usr/bin/autologin 38400 tty1|' "$BUILD_DIR/rootfs/etc/inittab"
 
           # Servisler
@@ -104,7 +136,7 @@ jobs:
           sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
           # Rootfs Paketleme
-          echo "[*] Ana sistem arşivleniyor..."
+          echo "[*] System arşivi oluşturuluyor..."
           sudo tar --exclude="./dev/*" --exclude="./proc/*" --exclude="./sys/*" \
                    --exclude="./tmp/*" --exclude="./run/*" --exclude="./mnt/*" \
                    --exclude="./boot/vmlinuz*" \
@@ -126,54 +158,54 @@ jobs:
 
           # Init Script
           sudo tee "$INITRD_DIR/init" << 'EOF'
-          #!/bin/sh
-          mount -t proc none /proc
-          mount -t sysfs none /sys
-          mount -t devtmpfs none /dev 2>/dev/null || true
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev 2>/dev/null || true
 
-          modprobe ata_piix 2>/dev/null || true
-          modprobe ahci 2>/dev/null || true
-          modprobe sd_mod 2>/dev/null || true
-          modprobe sr_mod 2>/dev/null || true
-          modprobe virtio_blk 2>/dev/null || true
-          modprobe virtio_pci 2>/dev/null || true
-          modprobe nvme 2>/dev/null || true
-          modprobe usb_storage 2>/dev/null || true
-          modprobe isofs 2>/dev/null || true
-          modprobe ext4 2>/dev/null || true
+modprobe ata_piix 2>/dev/null || true
+modprobe ahci 2>/dev/null || true
+modprobe sd_mod 2>/dev/null || true
+modprobe sr_mod 2>/dev/null || true
+modprobe virtio_blk 2>/dev/null || true
+modprobe virtio_pci 2>/dev/null || true
+modprobe nvme 2>/dev/null || true
+modprobe usb_storage 2>/dev/null || true
+modprobe isofs 2>/dev/null || true
+modprobe ext4 2>/dev/null || true
 
-          mdev -s 2>/dev/null || true
-          sleep 2
+mdev -s 2>/dev/null || true
+sleep 2
 
-          FOUND_DEV=""
-          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
-              [ -b "$dev" ] || continue
-              mkdir -p /mnt/cdrom
-              if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-                  if [ -f /mnt/cdrom/system.tar.xz ]; then
-                      FOUND_DEV="$dev"
-                      break
-                  fi
-                  umount /mnt/cdrom 2>/dev/null || true
-              fi
-          done
+FOUND_DEV=""
+for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
+    [ -b "$dev" ] || continue
+    mkdir -p /mnt/cdrom
+    if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
+        if [ -f /mnt/cdrom/system.tar.xz ]; then
+            FOUND_DEV="$dev"
+            break
+        fi
+        umount /mnt/cdrom 2>/dev/null || true
+    fi
+done
 
-          if [ -n "$FOUND_DEV" ]; then
-              mkdir -p /sysroot
-              mount -t tmpfs -o size=85% tmpfs /sysroot
-              tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
+if [ -n "$FOUND_DEV" ]; then
+    mkdir -p /sysroot
+    mount -t tmpfs -o size=85% tmpfs /sysroot
+    tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
 
-              mkdir -p /sysroot/mnt/cdrom
-              mount --move /mnt/cdrom /sysroot/mnt/cdrom
-              mount --move /dev /sysroot/dev
-              mount --move /proc /sysroot/proc
-              mount --move /sys /sysroot/sys
+    mkdir -p /sysroot/mnt/cdrom
+    mount --move /mnt/cdrom /sysroot/mnt/cdrom
+    mount --move /dev /sysroot/dev
+    mount --move /proc /sysroot/proc
+    mount --move /sys /sysroot/sys
 
-              exec switch_root /sysroot /sbin/init
-          fi
+    exec switch_root /sysroot /sbin/init
+fi
 
-          exec /bin/sh
-          EOF
+exec /bin/sh
+EOF
           sudo chmod +x "$INITRD_DIR/init"
 
           sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
@@ -185,7 +217,7 @@ jobs:
           cat << 'EOF' > "$BUILD_DIR/iso/boot/grub/grub.cfg"
           set timeout=3
           set default=0
-          menuentry "TAGCHAOS OS (Live Terminal & C Dev)" {
+          menuentry "TAGCHAOS OS Universal Desktop" {
               linux /boot/vmlinuz-lts quiet
               initrd /boot/initrd.img
           }
