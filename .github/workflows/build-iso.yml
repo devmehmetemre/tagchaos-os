@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Ultra-Lite (Wi-Fi + SD Card < 50MB)
+name: TAGCHAOS OS Final Universal Builder (Wi-Fi + SD/USB + Disk Installer)
 
 on:
   push:
@@ -12,12 +12,12 @@ jobs:
       - name: Kodları Çek
         uses: actions/checkout@v4
 
-      - name: Sistem Araçlarını Kur
+      - name: Bağımlılıkları Kur
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip xz-utils mtools util-linux rsync binutils
 
-      - name: Micro-Sized Wi-Fi & SD Card Build
+      - name: Sistem Yapılandırma ve ISO Üretimi
         run: |
           set -e
           BUILD_DIR="/tmp/tgh-build"
@@ -42,7 +42,7 @@ jobs:
           sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
           sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # LTS KERNEL + SADECE İHTİYAÇ OLAN AĞ PAKETLERİ
+          # Paket Kurulumu
           sudo chroot "$BUILD_DIR/rootfs" apk update
           sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
               linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd \
@@ -52,11 +52,11 @@ jobs:
           MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
 
           # ---------------------------------------------------------
-          # MİKRO BİÇME (Sadece Wi-Fi, SD Kart, Disk ve VirtIO kalır)
+          # KONTROLLÜ SÜRÜCÜ VE FIRMWARE TEMİZLİĞİ
           # ---------------------------------------------------------
-          echo "[*] Sürücüler mikro seviyede temizleniyor..."
+          echo "[*] Gereksiz modüller ve devasa GPU/Ses firmware'leri temizleniyor..."
           
-          # drivers/ altındaki gereksiz TÜM klasörleri sil (mmc, net, block, nvme, ata, virtio, scsi HARIÇ)
+          # drivers/ altından sadece depolama, ağ, USB, SD kart ve sanallaştırma modüllerini tut
           sudo find "$MOD_PATH/kernel/drivers" -maxdepth 1 -mindepth 1 \
             ! -name "net" \
             ! -name "block" \
@@ -65,15 +65,15 @@ jobs:
             ! -name "virtio" \
             ! -name "mmc" \
             ! -name "scsi" \
+            ! -name "usb" \
             -exec rm -rf {} + || true
 
-          # net/ altından wireless DIŞINDAKİ Ethernet vs. sürücüleri sil
+          # Ethernet dışı kablosuz ağ sürücülerini koru
           sudo find "$MOD_PATH/kernel/drivers/net" -maxdepth 1 -mindepth 1 \
             ! -name "wireless" \
             -exec rm -rf {} + || true
 
-          # Firmware temizliği: Sadece iwlwifi, rtlwifi, ath*, brcm* tut, gerisini sil
-          echo "[*] Lüzumsuz firmware dosyaları siliniyor..."
+          # Sadece Wi-Fi firmware dosyalarını sakla
           sudo find "$BUILD_DIR/rootfs/lib/firmware" -type f \
             ! -name "*iwlwifi*" \
             ! -name "*rtlwifi*" \
@@ -81,7 +81,7 @@ jobs:
             ! -name "*brcm*" \
             -delete 2>/dev/null || true
 
-          # Debug sembollerini temizle
+          # Debug Sembollerini Temizle
           sudo find "$MOD_PATH" -type f -name "*.ko*" -exec strip --strip-debug {} + 2>/dev/null || true
           sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc || true
           # ---------------------------------------------------------
@@ -93,11 +93,11 @@ jobs:
           # Mountları Çıkar
           sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
 
-          # Kernel'i ISO Boot Dizinine Taşı
+          # Çekirdeği Kopyala
           sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
-          # 1. HEDEF SİSTEM PAYLOAD'I (XZ ile Ultra Yüksek Sıkıştırma)
-          echo "[*] Hedef OS Payload paketleniyor (system.tar.xz)..."
+          # 1. HEDEF SİSTEM PAYLOAD'I
+          echo "[*] Ana sistem paketleniyor (system.tar.xz)..."
           sudo tar --exclude="./dev/*" \
                    --exclude="./proc/*" \
                    --exclude="./sys/*" \
@@ -107,13 +107,17 @@ jobs:
                    --exclude="./boot/vmlinuz*" \
                    -cJf "$BUILD_DIR/iso/system.tar.xz" -C "$BUILD_DIR/rootfs" .
 
-          # 2. MINIMAL LIVE INITRAMFS
-          echo "[*] Ultra-Lite Live Initramfs hazırlanıyor..."
+          # 2. CANLI SİSTEM İÇİN INITRAMFS (Kernel Panic Düzeltildi)
+          echo "[*] Live Initramfs oluşturuluyor..."
           INITRD_DIR="$BUILD_DIR/initramfs-root"
           mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
-                   "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/usr/local/bin"
+                   "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/usr/local/bin" "$INITRD_DIR/lib"
 
+          # Busybox ve Çalışması İçin Şart Olan Musl Bağlayıcı Kütüphanelerini Kopyala
           sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
+          sudo cp -a "$BUILD_DIR/rootfs/lib/ld-musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
+          sudo cp -a "$BUILD_DIR/rootfs/lib/libc.musl-"* "$INITRD_DIR/lib/" 2>/dev/null || true
+
           sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 
           mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
@@ -122,65 +126,65 @@ jobs:
           sudo cp "$BUILD_DIR/rootfs/usr/local/bin/tgh-install" "$INITRD_DIR/usr/local/bin/tgh-install"
           sudo chmod +x "$INITRD_DIR/usr/local/bin/tgh-install"
 
-          # Live Init Script
+          # Init Script
           sudo tee "$INITRD_DIR/init" << 'EOF'
-          #!/bin/sh
-          mount -t proc none /proc
-          mount -t sysfs none /sys
-          mount -t devtmpfs none /dev 2>/dev/null || true
-          mkdir -p /dev/pts
-          mount -t devpts devpts /dev/pts 2>/dev/null || true
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev 2>/dev/null || true
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts 2>/dev/null || true
 
-          mdev -s 2>/dev/null || true
+mdev -s 2>/dev/null || true
 
-          # Sürücüleri Yükle (MMC / SD Kart Sürücüleri Dahil)
-          modprobe virtio_blk 2>/dev/null || true
-          modprobe virtio_pci 2>/dev/null || true
-          modprobe ahci 2>/dev/null || true
-          modprobe ata_generic 2>/dev/null || true
-          modprobe sd_mod 2>/dev/null || true
-          modprobe sr_mod 2>/dev/null || true
-          modprobe nvme 2>/dev/null || true
-          modprobe mmc_block 2>/dev/null || true
-          modprobe sdhci 2>/dev/null || true
-          modprobe sdhci_pci 2>/dev/null || true
-          modprobe isofs 2>/dev/null || true
-          modprobe ext4 2>/dev/null || true
+# Tüm Depolama ve Veri Yolu Sürücülerini Yükle
+modprobe virtio_blk 2>/dev/null || true
+modprobe virtio_pci 2>/dev/null || true
+modprobe ahci 2>/dev/null || true
+modprobe ata_generic 2>/dev/null || true
+modprobe sd_mod 2>/dev/null || true
+modprobe sr_mod 2>/dev/null || true
+modprobe nvme 2>/dev/null || true
+modprobe uas 2>/dev/null || true
+modprobe usb_storage 2>/dev/null || true
+modprobe mmc_block 2>/dev/null || true
+modprobe sdhci 2>/dev/null || true
+modprobe sdhci_pci 2>/dev/null || true
+modprobe isofs 2>/dev/null || true
+modprobe ext4 2>/dev/null || true
 
-          export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
+export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
 
-          echo "[*] TAGCHAOS OS Live medyası aranıyor..."
-          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
-              [ -b "$dev" ] || continue
-              mkdir -p /mnt/cdrom
-              if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-                  if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
-                      echo "[+] TAGCHAOS OS Medyası Bağlandı: $dev"
-                      break
-                  fi
-                  umount /mnt/cdrom 2>/dev/null || true
-              fi
-          done
+echo "[*] TAGCHAOS OS Medyası taranıyor..."
+sleep 2
+mdev -s 2>/dev/null || true
 
-          clear
-          echo "=================================================="
-          echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
-          echo "    Kurulum İçin     : tgh-install                "
-          echo "    Wi-Fi Bağlantısı : iwctl                      "
-          echo "=================================================="
-          exec /bin/sh
-          EOF
+for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* /dev/cdrom; do
+    [ -b "$dev" ] || continue
+    mkdir -p /mnt/cdrom
+    if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
+        if [ -f /mnt/cdrom/system.tar.xz ] || [ -f /mnt/cdrom/system.tar.gz ]; then
+            echo "[+] TAGCHAOS OS Medyası Bulundu ve Bağlandı: $dev"
+            break
+        fi
+        umount /mnt/cdrom 2>/dev/null || true
+    fi
+done
+
+clear
+echo "=================================================="
+echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
+echo "    Diske Kurulum İçin : tgh-install               "
+echo "    Wi-Fi Bağlantısı   : iwctl                     "
+echo "=================================================="
+exec /bin/sh
+EOF
           sudo chmod +x "$INITRD_DIR/init"
 
-          # Initrd Paketi (XZ Sıkıştırmalı Initrd)
-          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | xz -9 --check=crc32 > $BUILD_DIR/iso/boot/initrd.img"
+          # Initrd Sıkıştırma (Standart Gzip - Maksimum Uyumluluk)
+          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
-          echo "=== DOSYA BOYUTLARI KONTROLÜ ==="
-          ls -lh "$BUILD_DIR/iso/boot/vmlinuz-lts"
-          ls -lh "$BUILD_DIR/iso/boot/initrd.img"
-          ls -lh "$BUILD_DIR/iso/system.tar.xz"
-
-      - name: GRUB ve ISO Oluşturma
+      - name: GRUB Yapılandırma ve ISO Derleme
         run: |
           set -e
           BUILD_DIR="/tmp/tgh-build"
@@ -196,10 +200,10 @@ jobs:
           sudo chmod -R 755 "$BUILD_DIR/iso"
           sudo grub-mkrescue -o dist/tagchaos-os.iso "$BUILD_DIR/iso"
           sudo chown -R $USER:$USER dist/
-          echo "=== NİHAİ ISO BOYUTU ==="
+          echo "=== ISO BOYUTU ==="
           ls -lh dist/tagchaos-os.iso
 
-      - name: Yapıtları Kaydet
+      - name: Artifact Kaydet
         uses: actions/upload-artifact@v4
         with:
           name: tagchaos-os
