@@ -1,4 +1,4 @@
-name: TAGCHAOS OS Hyper-Minimal ISO
+name: TAGCHAOS OS Ultra-Lite Universal Builder
 
 on:
   push:
@@ -17,85 +17,140 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xorriso wget curl parted grub-pc-bin grub-common cpio gzip mtools util-linux rsync
 
-      - name: Minimal Rootfs ve Payload Hazırlığı
+      - name: Sıfırdan Temiz Build Mantığı
         run: |
           set -e
-          mkdir -p work/rootfs work/iso/boot/grub work/dist work/clean-payload work/initrd-base
-          
+          BUILD_DIR="/tmp/tgh-build"
+          sudo rm -rf "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/grub" "$BUILD_DIR/initramfs-root" dist
+
           ALPINE_VER="3.20.3"
           echo "[*] Alpine minirootfs indiriliyor..."
           wget -q "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-${ALPINE_VER}-x86_64.tar.gz" -O alpine.tar.gz
-          tar -xzf alpine.tar.gz -C work/rootfs
+          tar -xzf alpine.tar.gz -C "$BUILD_DIR/rootfs"
           rm alpine.tar.gz
 
-          sudo cp /etc/resolv.conf work/rootfs/etc/resolv.conf
-          sudo bash -c 'cat << 'EOF' > work/rootfs/etc/apk/repositories
+          # Depoları Ayarla
+          sudo cp /etc/resolv.conf "$BUILD_DIR/rootfs/etc/resolv.conf"
+          sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/apk/repositories
           https://dl-cdn.alpinelinux.org/alpine/v3.20/main
           https://dl-cdn.alpinelinux.org/alpine/v3.20/community
-          EOF'
+          EOF"
 
-          sudo mount --bind /proc work/rootfs/proc
-          sudo mount --bind /sys work/rootfs/sys
-          sudo mount --bind /dev work/rootfs/dev
-          
-          sudo chroot work/rootfs apk update
-          # SADECE ŞART OLANLAR: 1270 MiB çöplük yok, saf çekirdek + araçlar (~150-200MB max)
-          sudo chroot work/rootfs apk add --no-cache linux-lts busybox e2fsprogs util-linux grub grub-bios rsync
+          # Chroot Mount
+          sudo mount --bind /proc "$BUILD_DIR/rootfs/proc"
+          sudo mount --bind /sys "$BUILD_DIR/rootfs/sys"
+          sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 
-          # Sert temizlik: Cache, doc, man, locale sıfırlama
-          sudo chroot work/rootfs rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc /lib/apk/db/* || true
+          # Sadece Hedef Sistem İçin Şart Paketler
+          sudo chroot "$BUILD_DIR/rootfs" apk update
+          sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache linux-lts mkinitfs busybox e2fsprogs util-linux grub grub-bios rsync openrc
 
-          sudo umount work/rootfs/proc work/rootfs/sys work/rootfs/dev
+          # Hedef sistem için yerleşik initramfs üret
+          LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
+          sudo chroot "$BUILD_DIR/rootfs" mkinitfs -o /boot/initramfs-lts "$LTS_VER"
 
-          # Kernel ISO boot dizinine taşı
-          sudo cp work/rootfs/boot/vmlinuz-lts work/iso/boot/vmlinuz-lts
+          # tgh-install Yükleyiciyi Hedef Sistem ve Live İçine Ekle
+          sudo cp -v tgh-install "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
+          sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
 
-          # tgh-install ekle
-          sudo mkdir -p work/rootfs/usr/local/bin
-          sudo cp -v tgh-install work/rootfs/usr/local/bin/tgh-install
-          sudo chmod +x work/rootfs/usr/local/bin/tgh-install
+          # Temizlik (Doküman, Man, APK önbelleği sil)
+          sudo chroot "$BUILD_DIR/rootfs" rm -rf /var/cache/apk/* /usr/share/man /usr/share/doc || true
 
-          # Temiz payload üret (rootfs.tar.gz) -> ISO köküne koy
-          sudo rsync -a --exclude={'dev/*','proc/*','sys/*','run/*','tmp/*','mnt/*'} work/rootfs/ work/clean-payload/
-          sudo mkdir -p work/clean-payload/dev work/clean-payload/proc work/clean-payload/sys work/clean-payload/run work/clean-payload/tmp work/clean-payload/mnt
-          sudo tar -czf work/iso/rootfs.tar.gz -C work/clean-payload .
+          # Mountları Çıkar
+          sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/dev"
 
-          # ULTRA-SLIM INITRAMFS
-          sudo mkdir -p work/initrd-base/{bin,sbin,etc,proc,sys,dev,mnt,root,usr/local/bin}
-          sudo cp -a work/rootfs/bin/busybox work/initrd-base/bin/
-          sudo chroot work/initrd-base /bin/busybox --install -s || true
-          sudo cp -v tgh-install work/initrd-base/usr/local/bin/tgh-install || true
-          sudo chmod +x work/initrd-base/usr/local/bin/tgh-install || true
-          sudo cp work/iso/rootfs.tar.gz work/initrd-base/rootfs.tar.gz || true
+          # Kernel'i ISO Boot Dizinine Taşı
+          sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
-          # Özel hafif init betiği
-          sudo tee work/initrd-base/init << 'EOF'
+          # 1. HEDEF SİSTEM PAYLOAD'I (Yalnızca ISO köküne koyulur, initrd içine ASLA konmaz!)
+          echo "[*] Hedef OS Payload paketleniyor..."
+          sudo tar --exclude="./dev/*" \
+                   --exclude="./proc/*" \
+                   --exclude="./sys/*" \
+                   --exclude="./tmp/*" \
+                   --exclude="./run/*" \
+                   --exclude="./mnt/*" \
+                   -czf "$BUILD_DIR/iso/system.tar.gz" -C "$BUILD_DIR/rootfs" .
+
+          # 2. HAFİF LIVE INITRAMFS OLUŞTURMA (VM + BareMetal Disk Sürücüleri İle)
+          echo "[*] Ultra-Lite Live Initramfs hazırlanıyor..."
+          INITRD_DIR="$BUILD_DIR/initramfs-root"
+          mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
+                   "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/usr/local/bin"
+
+          sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
+          sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
+
+          # Sürücü Modüllerini Kopyala (Disk, NVMe, SATA, VirtIO, ISO)
+          mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
+          sudo cp -a "$BUILD_DIR/rootfs/lib/modules/$LTS_VER" "$INITRD_DIR/lib/modules/"
+
+          sudo cp "$BUILD_DIR/rootfs/usr/local/bin/tgh-install" "$INITRD_DIR/usr/local/bin/tgh-install"
+          sudo chmod +x "$INITRD_DIR/usr/local/bin/tgh-install"
+
+          # Live Init Script
+          sudo tee "$INITRD_DIR/init" << 'EOF'
           #!/bin/sh
           mount -t proc none /proc
           mount -t sysfs none /sys
           mount -t devtmpfs none /dev 2>/dev/null || true
           mkdir -p /dev/pts
           mount -t devpts devpts /dev/pts 2>/dev/null || true
+
+          mdev -s 2>/dev/null || true
+
+          # Disk & Donanım Modüllerini Yükle
+          modprobe virtio_blk 2>/dev/null || true
+          modprobe virtio_pci 2>/dev/null || true
+          modprobe ahci 2>/dev/null || true
+          modprobe ata_generic 2>/dev/null || true
+          modprobe sd_mod 2>/dev/null || true
+          modprobe sr_mod 2>/dev/null || true
+          modprobe nvme 2>/dev/null || true
+          modprobe isofs 2>/dev/null || true
+          modprobe ext4 2>/dev/null || true
+
           export PATH=/usr/local/bin:/usr/bin:/bin:/sbin
-          
+
+          # Live ISO Medyasını Bağla
+          echo "[*] TAGCHAOS OS Live medyası aranıyor..."
+          ISO_MOUNTED=0
+          for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
+              [ -b "$dev" ] || continue
+              mkdir -p /mnt/cdrom
+              if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
+                  if [ -f /mnt/cdrom/system.tar.gz ]; then
+                      echo "[+] TAGCHAOS OS Medyası Bağlandı: $dev"
+                      ISO_MOUNTED=1
+                      break
+                  fi
+                  umount /mnt/cdrom 2>/dev/null || true
+              fi
+          done
+
           clear
-          echo "=========================================="
-          echo "    TAGCHAOS OS (Hyper-Lean) v1.0         "
-          echo "    Kurulum için  : tgh-install           "
-          echo "=========================================="
+          echo "=================================================="
+          echo "    TAGCHAOS OS (Ultra-Lite Universal) v1.0       "
+          echo "    Kurulum İçin  : tgh-install                   "
+          echo "=================================================="
           exec /bin/sh
           EOF
-          sudo chmod +x work/initrd-base/init
+          sudo chmod +x "$INITRD_DIR/init"
 
-          # Initrd cpio paketleme
-          sudo bash -c 'cd work/initrd-base && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > ../iso/boot/initrd.img'
-          rm -f work/iso/boot/initramfs-lts || true
-          ls -lh work/iso/boot/initrd.img work/iso/rootfs.tar.gz
+          # Initrd Paketi
+          sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip > $BUILD_DIR/iso/boot/initrd.img"
 
-      - name: GRUB Konfigürasyonu ve ISO Paketi
+          echo "=== BOYUT KONTROLÜ ==="
+          ls -lh "$BUILD_DIR/iso/boot/vmlinuz-lts"
+          ls -lh "$BUILD_DIR/iso/boot/initrd.img"
+          ls -lh "$BUILD_DIR/iso/system.tar.gz"
+
+      - name: GRUB ve ISO Oluşturma
         run: |
           set -e
-          cat << 'EOF' > work/iso/boot/grub/grub.cfg
+          BUILD_DIR="/tmp/tgh-build"
+          cat << 'EOF' > "$BUILD_DIR/iso/boot/grub/grub.cfg"
           set timeout=3
           set default=0
           menuentry "TAGCHAOS OS (Live / Install)" {
@@ -104,13 +159,14 @@ jobs:
           }
           EOF
 
-          sudo chmod -R 755 work/iso
-          sudo grub-mkrescue -o work/dist/tagchaos-os.iso work/iso
-          sudo chown -R $USER:$USER work/dist/
-          ls -lh work/dist/tagchaos-os.iso
+          sudo chmod -R 755 "$BUILD_DIR/iso"
+          sudo grub-mkrescue -o dist/tagchaos-os.iso "$BUILD_DIR/iso"
+          sudo chown -R $USER:$USER dist/
+          echo "=== NİHAİ ISO BOYUTU ==="
+          ls -lh dist/tagchaos-os.iso
 
       - name: Yapıtları Kaydet
         uses: actions/upload-artifact@v4
         with:
           name: tagchaos-os
-          path: work/dist/tagchaos-os.iso
+          path: dist/tagchaos-os.iso
