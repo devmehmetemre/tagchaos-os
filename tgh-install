@@ -5,19 +5,36 @@ echo "=========================================="
 echo "      TAGCHAOS OS DISK KURUCU            "
 echo "=========================================="
 
+# Canlı sistemin bağlı olduğu ISO diskini tespit et
+LIVE_DEV=""
+if mountpoint -q /mnt/cdrom; then
+    LIVE_DEV=$(mount | grep /mnt/cdrom | awk '{print $1}' | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//')
+fi
+
 TARGET_DISK=""
-for d in /dev/vda /dev/sda /dev/sdb /dev/nvme0n1 /dev/mmcblk0 /dev/mmcblk1; do
+for d in /dev/sda /dev/sdb /dev/vda /dev/vdb /dev/nvme0n1 /dev/mmcblk0 /dev/mmcblk1; do
     if [ -b "$d" ]; then
         case "$d" in
             /dev/sr*) continue ;;
         esac
+        # Canlı ISO medyasını hedef disk olarak seçme
+        if [ -n "$LIVE_DEV" ] && echo "$d" | grep -q "$LIVE_DEV"; then
+            continue
+        fi
+        # Salt okunur (CD-ROM) sürücüleri atla
+        IS_RO=$(cat /sys/block/$(basename $d)/ro 2>/dev/null || echo "0")
+        if [ "$IS_RO" = "1" ]; then
+            continue
+        fi
+
         TARGET_DISK="$d"
         break
     fi
 done
 
 if [ -z "$TARGET_DISK" ]; then
-    echo "[!] HATA: Uygun hedef disk bulunamadı!"
+    echo "[!] HATA: Yüklenecek uygun boş/yazılabilir disk bulunamadı!"
+    echo "VirtualBox ayarlarından sanal bir sabit disk (VDI) eklendiğinden emin olun."
     exit 1
 fi
 
@@ -25,7 +42,7 @@ echo "[*] Hedef Disk Saptandı: $TARGET_DISK"
 echo "[!] UYARI: $TARGET_DISK üzerindeki TÜM VERİLER SİLİNECEKTİR!"
 echo "Devam etmek için 'YES' yazın:"
 read CONFIRM
-if [ "$CONFIRM" != "YES" ]; then
+if [ "$CONFIRM" != "YES" ]; me
     echo "Kurulum iptal edildi."
     exit 0
 fi
@@ -45,20 +62,14 @@ MOUNT_DIR="/mnt/tagchaos-target"
 mkdir -p "$MOUNT_DIR"
 mount "$PART" "$MOUNT_DIR"
 
-PAYLOAD=""
-if [ -f /mnt/cdrom/system.tar.xz ]; then
-    PAYLOAD="/mnt/cdrom/system.tar.xz"
-elif [ -f /mnt/cdrom/system.tar.gz ]; then
-    PAYLOAD="/mnt/cdrom/system.tar.gz"
-fi
-
-if [ -z "$PAYLOAD" ]; then
-    echo "[!] HATA: Sistem imajı (system.tar.xz/gz) bulunamadı!"
+PAYLOAD="/mnt/cdrom/system.tar.xz"
+if [ ! -f "$PAYLOAD" ]; then
+    echo "[!] HATA: Sistem imajı ($PAYLOAD) bulunamadı!"
     umount "$MOUNT_DIR"
     exit 1
 fi
 
-echo "[*] Sistem diske aktarılıyor ($PAYLOAD)..."
+echo "[*] Sistem diske aktarılıyor..."
 tar -xf "$PAYLOAD" -C "$MOUNT_DIR/"
 
 mkdir -p "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" "$MOUNT_DIR/mnt" "$MOUNT_DIR/tmp" "$MOUNT_DIR/run"
