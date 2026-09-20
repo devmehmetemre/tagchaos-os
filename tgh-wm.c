@@ -23,14 +23,14 @@ static Window root_window;
 static int screen;
 static int running = 1;
 
-// X11 Hata Yakalayıcısı (Uygulamalar aniden kapandığında WM'in çökmesini engeller)
+// X11 Hata Yakalayıcısı
 static int x_error_handler(Display *d, XErrorEvent *e) {
     (void)d;
     (void)e;
     return 0;
 }
 
-// Harici Komut Çalıştırma (Terminal, Menü vb.)
+// Harici Komut Çalıştırma
 static void spawn(const char *command) {
     if (fork() == 0) {
         if (display) {
@@ -77,7 +77,7 @@ static void kill_client(Window w) {
     }
 }
 
-// Çocuk Süreç Temizleyici (Zombi süreçleri engeller)
+// Çocuk Süreç Temizleyici
 static void sigchld_handler(int sig) {
     (void)sig;
     while (waitpid(-1, NULL, WNOHANG) > 0);
@@ -96,7 +96,7 @@ int main(void) {
 
     display = XOpenDisplay(NULL);
     if (!display) {
-        fprintf(stderr, "[!] HATA: X11 sunucusuna bağlanılamadı. DISPLAY değişkenini kontrol edin.\n");
+        fprintf(stderr, "[!] HATA: X11 sunucusuna bağlanılamadı.\n");
         return EXIT_FAILURE;
     }
 
@@ -105,27 +105,24 @@ int main(void) {
 
     XSetErrorHandler(x_error_handler);
 
-    // Koyu Koyu Mavi Arka Plan Rengi (Slate - #0f172a)
+    // Koyu Mavi Arka Plan
     XSetWindowBackground(display, root_window, 0x0f172a);
     XClearWindow(display, root_window);
 
-    // Olay Dinleyicilerini Kaydet
+    // Olay Dinleyicileri
     XSelectInput(display, root_window, SubstructureNotifyMask | SubstructureRedirectMask);
 
-    // Kısayol Tuşlarını Tanımla (Grab Keys)
-    // Super + Enter -> Terminal
+    // Kısayollar
     XGrabKey(display, XKeysymToKeycode(display, XK_Return), MOD_KEY,
              root_window, True, GrabModeAsync, GrabModeAsync);
     
-    // Super + Q -> Pencere Kapat
     XGrabKey(display, XKeysymToKeycode(display, XK_q), MOD_KEY,
              root_window, True, GrabModeAsync, GrabModeAsync);
 
-    // Super + Shift + E -> Masaüstünden Çıkış
     XGrabKey(display, XKeysymToKeycode(display, XK_E), MOD_KEY | ShiftMask,
              root_window, True, GrabModeAsync, GrabModeAsync);
 
-    // Fare Tuşlarını Tanımla (Super + Sol Tık = Taşı, Super + Sağ Tık = Boyutlandır)
+    // Fare kontrolleri
     XGrabButton(display, 1, MOD_KEY, root_window, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
@@ -133,12 +130,11 @@ int main(void) {
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeAsync, GrabModeAsync, None, None);
 
-    printf("[+] TAGCHAOS Native Window Manager başarıyla başlatıldı.\n");
+    printf("[+] TAGCHAOS Native Window Manager çalışıyor.\n");
     fflush(stdout);
 
     Window focused_win = None;
 
-    // Olay Döngüsü (Event Loop)
     while (running) {
         XNextEvent(display, &ev);
 
@@ -146,7 +142,7 @@ int main(void) {
             case MapRequest:
                 XMapWindow(display, ev.xmaprequest.window);
                 XSetWindowBorderWidth(display, ev.xmaprequest.window, 2);
-                XSetWindowBorder(display, ev.xmaprequest.window, 0x3b82f6); // Mavi Kenarlık
+                XSetWindowBorder(display, ev.xmaprequest.window, 0x3b82f6);
                 XSetInputFocus(display, ev.xmaprequest.window, RevertToParent, CurrentTime);
                 focused_win = ev.xmaprequest.window;
                 break;
@@ -180,10 +176,10 @@ int main(void) {
                 if (start_mouse.subwindow != None && start_mouse.subwindow != root_window) {
                     int xdiff = ev.xbutton.x_root - start_mouse.x_root;
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
-                    if (start_mouse.button == 1) { // Taşı
+                    if (start_mouse.button == 1) {
                         XMoveWindow(display, start_mouse.subwindow,
                                     attr.x + xdiff, attr.y + ydiff);
-                    } else if (start_mouse.button == 3) { // Boyutlandır
+                    } else if (start_mouse.button == 3) {
                         int new_w = attr.width + xdiff;
                         int new_h = attr.height + ydiff;
                         if (new_w > 50 && new_h > 50) {
