@@ -72,49 +72,10 @@ jobs:
 
           # Tint2 Görev Çubuğu Konfigürasyonu
           sudo mkdir -p "$BUILD_DIR/rootfs/etc/skel/.config/tint2" "$BUILD_DIR/rootfs/root/.config/tint2"
-          sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc
-# TAGCHAOS OS Panel Config
-panel_position = bottom center horizontal
-panel_size = 100% 36
-panel_margin = 0 0
-panel_padding = 4 2 4
-panel_background_id = 1
-wm_menu = 1
-panel_dock = 0
-
-# Backgrounds
-background_color = #0f172a 100
-border_color = #3b82f6 100
-border_width = 1
-
-# Taskbar
-taskbar_mode = single_desktop
-taskbar_padding = 2 0 2
-taskbar_background_id = 0
-
-# Task Properties
-task_icon = 1
-task_text = 1
-task_maximum_size = 180 32
-task_padding = 4 2
-task_font = sans 9
-task_font_color = #f8fafc 100
-task_background_id = 0
-
-# Clock
-time1_format = %H:%M:%S
-time1_font = sans bold 10
-time2_format = %d.%m.%Y
-time2_font = sans 8
-clock_font_color = #38bdf8 100
-clock_padding = 8 2
-clock_background_id = 0
-
-# Tooltip
-tooltip_show_timeout = 0.5
-tooltip_hide_timeout = 0.1
-tooltip_font = sans 9
-EOF"
+          
+          # YAML sentaks hatasını engellemek için base64 ile yazdırıyoruz
+          echo "cGFuZWxfcG9zaXRpb24gPSBib3R0b20gY2VudGVyIGhvcml6b250YWwKcGFuZWxfc2l6ZSA9IDEwMCUgMzYKcGFuZWxfbWFyZ2luID0gMCAwCnBhbmVsX3BhZGRpbmcgPSA0IDIgNApwYW5lbF9iYWNrZ3JvdW5kX2lkID0gMQp3bV9tZW51ID0gMQpwYW5lbF9kb2NrID0gMApiYWNrZ3JvdW5kX2NvbG9yID0gIzBmMTcyYSAxMDAKYm9yZGVyX2NvbG9yID0gIzNiODJmNiAxMDAKYm9yZGVyX3dpZHRoID0gMQp0YXNrYmFyX21vZGUgPSBzaW5nbGVfZGVza3RvcAp0YXNrYmFyX3BhZGRpbmcgPSAyIDAgMgp0YXNrYmFyX2JhY2tncm91bmRfaWQgPSAwCnRhc2tfaWNvbiA9IDEKdGFza190ZXh0ID0gMQp0YXNrX21heGltdW1fc2l6ZSA9IDE4MCAzMgp0YXNrX3BhZGRpbmcgPSA0IDIKdGFza19mb250ID0gc2FucyA5CnRhc2tfZm9udF9jb2xvciA9ICNmOGZhZmMgMTAwCnRhc2tfYmFja2dyb3VuZF9pZCA9IDAKdGltZTFfZm9ybWF0ID0gJUg6JU06JVMKdGltZTFfZm9udCA9IHNhbnMgYm9sZCAxMAp0aW1lMl9mb3JtYXQgPSAlZC4lbS4lWQp0aW1lMl9mb250ID0gc2FucyA4CmNsb2NrX2ZvbnRfY29sb3IgPSAjMzhiZGY4IDEwMApjbG9ja19wYWRkaW5nID0gOCA4CmNsb2NrX2JhY2tncm91bmRfaWQgPSAwCnRvb2x0aXBfc2hv333dGltZW91dCA9IDAuNQp0b29sdGlwX2hpZGVfdGltZW91dCA9IDAuMQp0b29sdGlwX2ZvbnQgPSBzYW5zIDk=" | base64 -d | sudo tee "$BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc" > /dev/null
+          
           sudo cp "$BUILD_DIR/rootfs/etc/skel/.config/tint2/tint2rc" "$BUILD_DIR/rootfs/root/.config/tint2/tint2rc"
 
           # TTY1 Otomatik Root Girişi (BusyBox Uyumlu Autologin)
