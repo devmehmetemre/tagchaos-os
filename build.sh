@@ -27,7 +27,7 @@ sudo mount --bind /dev "$BUILD_DIR/rootfs/dev"
 sudo chroot "$BUILD_DIR/rootfs" apk update
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
-    tzdata dbus shadow parted sfdisk neofetch bash \
+    tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
     linux-firmware-intel linux-firmware-rtlwifi linux-firmware-ath10k linux-firmware-brcm
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
@@ -39,22 +39,16 @@ if [ -f tgh-install ]; then
     sudo chmod +x "$BUILD_DIR/rootfs/usr/local/bin/tgh-install"
 fi
 
-# Özel TAGCHAOS OS MOTD Karşılama Ekranı
+# Düz Metin Karşılama Ekranı (MOTD)
 sudo bash -c "cat << 'EOF' > $BUILD_DIR/rootfs/etc/motd
 
-  _____  _    ____ ____ _   _  _   U  ___ u ____     U  ___ u ____   
- |_   _||\"a  / ___/ ___|  |\"| | |  \/"_ \/  _\"\    \/"_ \/ ___|  
-   | |  |  _|| |  | |  |_|  |_| |  | | | | | | |   | | | \___ \  
-  /| |\ | |__| |__| |__| |   _  |  | |_| | |_| |  /| |_| |___) | 
- u |_|U |____\____\____|_|  |_| |   \___/ \____/  u \___/|____/  
-
- =================================================================
-          Welcome to TAGCHAOS OS Universal System!
- =================================================================
-   * To Start System Installer : tgh-install
-   * To Connect Wi-Fi         : iwctl
-   * Package Manager          : apk
- =================================================================
+=================================================================
+             TAGCHAOS OS Universal Desktop System
+=================================================================
+  * Kurulumu başlatmak için : tgh-install
+  * Wi-Fi bağlantısı için   : iwctl
+  * Paket yöneticisi        : apk
+=================================================================
 
 EOF"
 
@@ -151,7 +145,7 @@ sudo chmod +x "$INITRD_DIR/init"
 
 sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
-# GRUB Yapılandırma ve ISO Açılış Menüsü
+# GRUB Yapılandırması
 cat << 'EOF' > "$BUILD_DIR/iso/boot/grub/grub.cfg"
 set timeout=5
 set default=0
@@ -160,7 +154,7 @@ insmod all_video
 insmod gfxterm
 
 menuentry "TAGCHAOS OS - Live Installer" {
-    linux /boot/vmlinuz-lts quiet
+    linux /boot/vmlinuz-lts quiet console=tty1
     initrd /boot/initrd.img
 }
 EOF
