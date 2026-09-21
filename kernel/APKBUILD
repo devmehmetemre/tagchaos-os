@@ -1,0 +1,32 @@
+# CHA OS hafif kernel APKBUILD (linux-lts tabanlı)
+# aports/main/linux-lts mantığına uygun sadeleştirilmiş sürüm.
+# Kullanım: CI'da kernel/build-kernel.sh çağırır, config-chaos.fragment uygulanır.
+pkgname=linux-chaos
+pkgver=6.6.52
+pkgrel=0
+pkgdesc="CHA OS hafifletilmiş LTS kernel (XFCE/LXQt/Sway, düşük RAM)"
+arch="x86_64 aarch64"
+license="GPL-2.0-only"
+options="!strip"
+makedepends="bash bc bison flex openssl-dev perl python3 elfutils-dev"
+source="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$pkgver.tar.xz
+        config-chaos.$arch
+        config-chaos.fragment"
+builddir="$srcdir/linux-$pkgver"
+
+build() {
+  cp "$srcdir/config-chaos.$arch" .config
+  # hafifletme fragmentini uygula
+  ./scripts/kconfig/merge_config.sh -m .config "$srcdir/config-chaos.fragment"
+  make olddefconfig
+  make -j$(nproc) vmlinuz modules
+}
+
+package() {
+  make INSTALL_MOD_PATH="$pkgdir" modules_install
+  install -Dm644 arch/x86/boot/bzImage "$pkgdir/boot/vmlinuz-chaos" 2>/dev/null || \
+  install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/vmlinuz-chaos"
+  # gereksiz modülleri at (ses pro + eski ağ + debug)
+  rm -rf "$pkgdir/lib/modules/$pkgver-chaos/kernel/sound/firewire" \
+         "$pkgdir/lib/modules/$pkgver-chaos/kernel/drivers/isdn" 2>/dev/null || true
+}

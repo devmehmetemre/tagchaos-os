@@ -1,0 +1,19 @@
+# CHA OS hafif kernel fragmenti (linux-lts üzerine)
+# Kullanım: aports'ta linux-lts/APKBUILD ile veya KCONFIG fragment olarak.
+# Hedef: gereksiz FS/sound/debug kapat, düşük RAM'de hızlı açılış.
+CONFIG_SLOB=n
+CONFIG_SLUB=y
+CONFIG_HZ_1000=y
+CONFIG_PREEMPT_VOLUNTARY=y
+# Gereksiz dosya sistemlerini kapat:
+# CONFIG_REISERFS is not set
+# CONFIG_JFS is not set
+# CONFIG_GFS2 is not set
+# Debug kapat:
+# CONFIG_DEBUG_KERNEL is not set
+# CONFIG_KGDB is not set
+CONFIG_LZ4_COMPRESS=y
+CONFIG_ZSTD_COMPRESS=y
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_XZ=y
+CONFIG_SQUASHFS_ZSTD=y

@@ -1,0 +1,10 @@
+/* CHA-Dark GTK teması v1 (koyu minimal, XFCE/LXQt uyumlu) */
+@define-color bg #0a0e14;
+@define-color fg #c8d3e0;
+@define-color accent #4cc9f0;
+@define-color panel #131c2b;
+
+* { background-color: @bg; color: @fg; }
+button:checked, button:selected { background-color: @accent; color: #0a0e14; }
+entry:focus { border-color: @accent; }
+headerbar { background-color: @panel; }

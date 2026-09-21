@@ -1,0 +1,16 @@
+alpine-base
+openrc
+grub
+grub-efi
+sudo
+shadow
+tzdata
+musl-locales
+dialog
+networkmanager
+lxqt
+lxqt-session
+sddm
+firefox
+chaos-icons
+chaos-wallpapers

@@ -1,0 +1,10 @@
+# CHA OS Sway varsayılanı (koyu minimal)
+set $mod Mod4
+output * bg /usr/share/chaos/wallpaper.svg fill
+client.focused #4cc9f0 #4cc9f0 #0a0e14
+client.unfocused #1e2a3d #131c2b #9aa7bd
+exec waybar
+exec wofi --show drun
+bindsym $mod+Return exec foot
+bindsym $mod+d exec wofi --show drun
+bindsym $mod+Shift+e exec swaynag -t warning -m 'Kapatılsın mı?' -b 'Evet' 'swaymsg exit'

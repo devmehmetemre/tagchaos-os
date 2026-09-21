@@ -1,0 +1,8 @@
+NAME="CHA OS"
+PRETTY_NAME="CHA OS 1.0.0 (Alpine)"
+ID=chaos
+ID_LIKE=alpine
+VERSION="1.0.0"
+VERSION_CODENAME=cheetah
+HOME_URL="https://github.com/<org>/cha-os"
+LOGO=chaos

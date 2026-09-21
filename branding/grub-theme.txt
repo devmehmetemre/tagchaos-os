@@ -1,0 +1,9 @@
+# CHA OS GRUB teması (koyu minimal)
+title-text: "CHA OS"
+desktop-color: "#0a0e14"
+terminal-font: "Unifont Regular 16"
++ boot_menu {
+  left = 20%; top = 30%; width = 60%; height = 40%;
+  item_color = "#9aa7bd";
+  selected_item_color = "#4cc9f0";
+}

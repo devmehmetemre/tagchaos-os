@@ -1,0 +1,118 @@
+#!/bin/sh
+# cha-setup-install: gerçek kurulum backend'i. cha-setup TUI tarafından çağrılır.
+# Kullanım: cha-setup-install --lang tr --timezone Europe/Istanbul --keymap trq ...
+set -eu
+
+LANG_C="tr"; TZ="Europe/Istanbul"; KEYMAP="trq"; HOSTNAME="chaos"
+DISK=""; DESKTOP="xfce"; USERNAME="cha"; ROOTPW=""; USERPW=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lang) LANG_C="$2"; shift 2;;
+    --timezone) TZ="$2"; shift 2;;
+    --keymap) KEYMAP="$2"; shift 2;;
+    --hostname) HOSTNAME="$2"; shift 2;;
+    --disk) DISK="$2"; shift 2;;
+    --desktop) DESKTOP="$2"; shift 2;;
+    --user) USERNAME="$2"; shift 2;;
+    --rootpw) ROOTPW="$2"; shift 2;;
+    --userpw) USERPW="$2"; shift 2;;
+    *) echo "bilinmeyen arg: $1" >&2; exit 1;;
+  esac
+done
+
+[ -n "$DISK" ] || { echo "disk gerekli"; exit 1; }
+[ -n "$ROOTPW" ] || { echo "root şifresi gerekli"; exit 1; }
+
+echo "[install] disk hazırlanıyor: $DISK"
+apk add --no-cache dosfstools e2fsprogs parted 2>&1 | tail -n 2
+
+# GPT: 512M EFI + rest root (basit, güvenilir)
+parted -s "$DISK" mklabel gpt \
+  mkpart ESP fat32 1MiB 513MiB set 1 esp on \
+  mkpart primary ext4 513MiB 100%
+EFI_PART="${DISK}1"; ROOT_PART="${DISK}2"
+case "$DISK" in *nvme*|*mmcblk*) EFI_PART="${DISK}p1"; ROOT_PART="${DISK}p2";; esac
+
+mkfs.fat -F32 "$EFI_PART"
+mkfs.ext4 -F -L CHAOS_ROOT "$ROOT_PART"
+mkdir -p /mnt/chaos
+mount "$ROOT_PART" /mnt/chaos
+mkdir -p /mnt/chaos/boot/efi
+mount "$EFI_PART" /mnt/chaos/boot/efi
+
+echo "[install] base sistem kuruluyor..."
+apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.20/main \
+  --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+
+for d in dev proc sys; do mount --bind "/$d" "/mnt/chaos/$d"; done
+
+echo "[install] chroot yapılandırma..."
+cp /etc/resolv.conf /mnt/chaos/etc/resolv.conf 2>/dev/null || true
+cat > /mnt/chaos/etc/hostname <<EOF
+$HOSTNAME
+EOF
+mkdir -p /mnt/chaos/etc
+echo "127.0.0.1 localhost $HOSTNAME" > /mnt/chaos/etc/hosts
+echo "::1 localhost" >> /mnt/chaos/etc/hosts
+
+# timezone + keymap + dil
+chroot /mnt/chaos /bin/sh -e <<EOF
+cp "/usr/share/zoneinfo/$TZ" /etc/localtime 2>/dev/null || echo "TZ kopyalanamadı: $TZ"
+echo "$TZ" > /etc/timezone
+echo "keymap=$KEYMAP" > /etc/conf.d/loadkeys 2>/dev/null || true
+rc-update add keymaps boot 2>/dev/null || true
+rc-update add devfs sysinit || true
+EOF
+
+# root + kullanıcı
+chroot /mnt/chaos /bin/sh -e <<EOF
+echo "root:$ROOTPW" | chpasswd
+adduser -D -g "$USERNAME" "$USERNAME" 2>/dev/null || adduser -D "$USERNAME"
+echo "$USERNAME:$USERPW" | chpasswd
+addgroup "$USERNAME" wheel 2>/dev/null || true
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+sed -i 's/^# \%wheel/\%wheel/' /etc/sudoers 2>/dev/null || true
+EOF
+
+# masaüstü paketleri
+case "$DESKTOP" in
+  xfce) PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter networkmanager firefox";;
+  lxqt) PKGS="lxqt sddm networkmanager firefox";;
+  sway) PKGS="sway foot waybar wofi networkmanager firefox";;
+  none) PKGS="openssh";;
+  *) PKGS="openssh";;
+esac
+echo "[install] masaüstü: $DESKTOP -> $PKGS"
+chroot /mnt/chaos apk add --no-cache $PKGS >/dev/null
+chroot /mnt/chaos rc-update add dbus default 2>/dev/null || true
+case "$DESKTOP" in
+  xfce) chroot /mnt/chaos rc-update add lightdm default 2>/dev/null || true;;
+  lxqt) chroot /mnt/chaos rc-update add sddm default 2>/dev/null || true;;
+esac
+chroot /mnt/chaos rc-update add NetworkManager default 2>/dev/null || true
+
+# CHA branding + tema kopyala (build sırasında /usr/share/chaos altına konur)
+if [ -d /usr/share/chaos ]; then cp -r /usr/share/chaos /mnt/chaos/usr/share/ 2>/dev/null || true; fi
+cat /mnt/chaos/usr/share/chaos/motd 2>/dev/null || true > /mnt/chaos/etc/motd 2>/dev/null || true
+# ikon paketi + koyu tema varsayılanları (kaynak: /usr/share/chaos)
+chroot /mnt/chaos sh /usr/share/chaos/icons/install.sh / 2>/dev/null || true
+chroot /mnt/chaos sh /usr/share/chaos/desktop/chaos-xfce-defaults.sh /etc/skel 2>/dev/null || true
+cp /mnt/chaos/usr/share/chaos/desktop/lxqt.conf /mnt/chaos/etc/skel/lxqt.conf 2>/dev/null || true
+mkdir -p /mnt/chaos/etc/skel/.config/sway /mnt/chaos/etc/lightdm /mnt/chaos/etc/sddm.conf.d
+cp /mnt/chaos/usr/share/chaos/desktop/sway-config /mnt/chaos/etc/skel/.config/sway/config 2>/dev/null || true
+cp /mnt/chaos/usr/share/chaos/lightdm-gtk-greeter.conf /mnt/chaos/etc/lightdm/lightdm-gtk-greeter.conf 2>/dev/null || true
+cp /mnt/chaos/usr/share/chaos/sddm-chaos.conf /mnt/chaos/etc/sddm.conf.d/chaos.conf 2>/dev/null || true
+
+# fstab + grub
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+EFI_UUID=$(blkid -s UUID -o value "$EFI_PART")
+cat > /mnt/chaos/etc/fstab <<EOF
+UUID=$ROOT_UUID / ext4 defaults 0 1
+UUID=$EFI_UUID /boot/efi vfat defaults 0 2
+EOF
+chroot /mnt/chaos grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=CHAOS --removable
+chroot /mnt/chaos grub-mkconfig -o /boot/grub/grub.cfg
+
+umount -R /mnt/chaos 2>/dev/null || umount /mnt/chaos/boot/efi; umount /mnt/chaos || true
+echo "[install] TAMAMLANDI."

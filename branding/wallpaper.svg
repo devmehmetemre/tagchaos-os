@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#0a0e14"/><stop offset="1" stop-color="#131c2b"/>
+</linearGradient></defs>
+<rect width="1920" height="1080" fill="url(#g)"/>
+<circle cx="960" cy="440" r="150" fill="none" stroke="#4cc9f0" stroke-width="10"/>
+<text x="960" y="460" font-family="monospace" font-size="90" fill="#4cc9f0" text-anchor="middle">CHA</text>
+<text x="960" y="700" font-family="monospace" font-size="36" fill="#9aa7bd" text-anchor="middle">Minimal - Hizli - Alpine tabanli</text>
+</svg>

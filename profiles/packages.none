@@ -1,0 +1,8 @@
+alpine-base
+openrc
+openssh
+sudo
+shadow
+tzdata
+musl-locales
+dialog

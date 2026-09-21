@@ -1,0 +1,99 @@
+#!/bin/sh
+# CHA OS - cha-setup TUI kurulum aracı
+# POSIX sh + dialog uyumlu. Alpine live ortamında root olarak çalışır.
+set -eu
+
+APP="cha-setup"
+VERSION="1.0.0"
+LOG="/var/log/cha-setup.log"
+: > "$LOG" 2>/dev/null || true
+
+log() { echo "[cha-setup] $*" | tee -a "$LOG"; }
+die() { echo "HATA: $*" | tee -a "$LOG" >&2; exit 1; }
+
+need_root() { [ "$(id -u)" -eq 0 ] || die "root olarak çalıştırın (sudo cha-setup)"; }
+
+# dialog / whiptail soyutlama
+DIALOG_BIN=""
+if command -v dialog >/dev/null 2>&1; then DIALOG_BIN="dialog";
+elif command -v whiptail >/dev/null 2>&1; then DIALOG_BIN="whiptail";
+else echo "dialog kuruluyor..."; apk add --no-cache dialog >/dev/null 2>&1 || die "dialog kurulamadı"; DIALOG_BIN="dialog"; fi
+
+BACKTITLE="CHA OS Kurulum v$VERSION"
+
+ask_lang() {
+  $DIALOG_BIN --backtitle "$BACKTITLE" --radiolist "Dil seçin / Select language:" 12 50 3 \
+    tr "Türkçe" on \
+    en "English" off \
+    de "Deutsch" off 2>&1 >/dev/tty || exit 1
+}
+
+ask_timezone() {
+  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Zaman dilimi (örn: Europe/Istanbul):" 8 50 "Europe/Istanbul" 2>&1 >/dev/tty || exit 1
+}
+
+ask_keymap() {
+  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Klavye düzeni (örn: trq, us, de):" 8 50 "trq" 2>&1 >/dev/tty || exit 1
+}
+
+ask_hostname() {
+  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Makine adı (hostname):" 8 50 "chaos" 2>&1 >/dev/tty || exit 1
+}
+
+ask_disk() {
+  DISKS=$(lsblk -dn -o NAME,SIZE,MODEL 2>/dev/null | awk '{print "/dev/"$1" "$2" "$3}' || ls /dev/sd* /dev/vd* /dev/nvme* 2>/dev/null)
+  [ -n "$DISKS" ] || die "disk bulunamadı"
+  # menü için sadeleştir
+  DEV=$(lsblk -dn -o PATH 2>/dev/null | head -n 10 || echo "/dev/sda")
+  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Kurulum diski (TÜM VERİ SİLİNİR!):" 9 60 "$(echo "$DEV" | head -n1)" 2>&1 >/dev/tty || exit 1
+}
+
+ask_desktop() {
+  $DIALOG_BIN --backtitle "$BACKTITLE" --radiolist "Masaüstü ortamı:" 13 60 4 \
+    xfce "XFCE (önerilen, hafif)" on \
+    lxqt "LXQt (çok hafif)" off \
+    sway "Sway (tiling, Wayland)" off \
+    none "Yok (sunucu / minimal)" off 2>&1 >/dev/tty || exit 1
+}
+
+ask_users() {
+  USERNAME=$($DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Kullanıcı adı:" 8 40 "cha" 2>&1 >/dev/tty) || exit 1
+  echo "$USERNAME"
+}
+
+main() {
+  need_root
+  $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "CHA OS kurulumuna hoş geldiniz!\nAlpine tabanlı minimal, hızlı sistem." 8 50
+
+  LANG_CHOICE=$(ask_lang); log "lang=$LANG_CHOICE"
+  TZ=$(ask_timezone); log "tz=$TZ"
+  KEYMAP=$(ask_keymap); log "keymap=$KEYMAP"
+  HOSTNAME=$(ask_hostname); log "hostname=$HOSTNAME"
+  DISK=$(ask_disk); log "disk=$DISK"
+  DESKTOP=$(ask_desktop); log "desktop=$DESKTOP"
+  USERNAME=$(ask_users); log "user=$USERNAME"
+
+  $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "Root şifresi:" 8 40 2>&1 >/dev/tty > /tmp/.rootpw || exit 1
+  $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "$USERNAME şifresi:" 8 40 2>&1 >/dev/tty > /tmp/.userpw || exit 1
+  ROOTPW=$(cat /tmp/.rootpw; rm -f /tmp/.rootpw)
+  USERPW=$(cat /tmp/.userpw; rm -f /tmp/.userpw)
+
+  $DIALOG_BIN --backtitle "$BACKTITLE" --yesno "Özet:\nDil: $LANG_CHOICE\nTZ: $TZ\nKlavye: $KEYMAP\nHost: $HOSTNAME\nDisk: $DISK (SİLİNECEK)\nMasaüstü: $DESKTOP\nKullanıcı: $USERNAME\n\nDevam edilsin mi?" 16 60 || exit 1
+
+  log "kurulum başlıyor..."
+  # setup-alpine tarzı adımlar CHA OS'e uyarlandı:
+  # 1. disk hazırla
+  # 2. base kur
+  # 3. chroot içinde yapılandır
+  # Gerçek yazma işlemi cha-setup-install backend tarafından yapılır.
+  SCRIPT_DIR=$(dirname "$0")
+  INSTALL_BACKEND="$SCRIPT_DIR/cha-setup-install"
+  [ -x "$INSTALL_BACKEND" ] || die "backend bulunamadı: $INSTALL_BACKEND"
+  "$INSTALL_BACKEND" --lang "$LANG_CHOICE" --timezone "$TZ" --keymap "$KEYMAP" \
+    --hostname "$HOSTNAME" --disk "$DISK" --desktop "$DESKTOP" \
+    --user "$USERNAME" --rootpw "$ROOTPW" --userpw "$USERPW"
+
+  $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "Kurulum tamamlandı! Yeniden başlatabilirsiniz." 7 50
+}
+
+main "$@"
