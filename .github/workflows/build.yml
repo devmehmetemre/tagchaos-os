@@ -14,12 +14,15 @@ jobs:
         desktop: [xfce, lxqt, sway]
     steps:
       - uses: actions/checkout@v4
-      - name: Build rootfs + ISO
+      - name: Build rootfs (host, apk gerekmez)
         run: |
-          sudo apt-get update && sudo apt-get install -y wget xorriso grub-pc-bin grub-efi mtools dosfstools squashfs-tools
-          chmod +x build.sh tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh kernel/build-kernel.sh profiles/desktop/xfce/chaos-xfce-defaults.sh cha-setup/cha-setup cha-setup/cha-setup-install branding/icons/install.sh
+          sudo apt-get update && sudo apt-get install -y wget
+          chmod +x build.sh profiles/live-overlay/gen-apkovl.sh kernel/build-kernel.sh profiles/desktop/xfce/chaos-xfce-defaults.sh cha-setup/cha-setup cha-setup/cha-setup-install branding/icons/install.sh
           sh kernel/build-kernel.sh --arch ${{ matrix.arch }}
-          ./build.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev} --iso
+          ./build.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev}
+      - name: Build ISO (Alpine Docker, apk burada)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/work" -w /work alpine:3.20 sh -c "chmod +x tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh && sh tools/make-iso.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev}"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
