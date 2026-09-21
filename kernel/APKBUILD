@@ -2,7 +2,7 @@
 # aports/main/linux-lts mantığına uygun sadeleştirilmiş sürüm.
 # Kullanım: CI'da kernel/build-kernel.sh çağırır, config-chaos.fragment uygulanır.
 pkgname=linux-chaos
-pkgver=6.6.52
+pkgver=6.12.110
 pkgrel=0
 pkgdesc="CHA OS hafifletilmiş LTS kernel (XFCE/LXQt/Sway, düşük RAM)"
 arch="x86_64 aarch64"

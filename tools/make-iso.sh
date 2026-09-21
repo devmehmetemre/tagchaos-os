@@ -3,12 +3,14 @@
 # Alpine container içinde root olarak çalışır. Harici bağımlılık: apk, grub-mkrescue/xorriso, mtools, squashfs-tools
 # Kullanım: ./tools/make-iso.sh --arch x86_64 --desktop xfce --version 1.0.0
 # Bu script SADECE Alpine içinde çalışır (apk gerekir).
-# CI'da Ubuntu host üzerinde DEĞİL, `docker run alpine:3.20` içinde çağrılır.
+# CI'da Ubuntu host üzerinde DEĞİL, `docker run alpine:3.22` içinde çağrılır.
 # Bkz: .github/workflows/build.yml -> "Build ISO (Alpine Docker)"
 set -eu
-command -v apk >/dev/null 2>&1 || { echo "HATA: apk bulunamadı. Bu scripti Alpine Docker içinde çalıştırın:"; echo "  docker run --rm -v \"\$PWD:/work\" -w /work alpine:3.20 sh tools/make-iso.sh --arch x86_64 --desktop xfce"; exit 1; }
+command -v apk >/dev/null 2>&1 || { echo "HATA: apk bulunamadı. Bu scripti Alpine Docker içinde çalıştırın:"; echo "  docker run --rm -v \"\$PWD:/work\" -w /work alpine:3.22 sh tools/make-iso.sh --arch x86_64 --desktop xfce"; exit 1; }
 
-ARCH="x86_64"; DESKTOP="xfce"; VERSION="dev"; ALPINE_VER="v3.20"
+ARCH="x86_64"; DESKTOP="xfce"; VERSION="dev"
+# NOT: repo sürümü pinlenmez; container imajı (alpine:3.22) ne ise o kullanılır.
+# Bkz: .github/workflows/build.yml -> docker run alpine:3.22
 while [ $# -gt 0 ]; do case "$1" in
   --arch) ARCH="$2"; shift 2;; --desktop) DESKTOP="$2"; shift 2;;
   --version) VERSION="$2"; shift 2;; *) shift;;
@@ -22,29 +24,42 @@ echo "[iso] live overlay hazırlanıyor..."
 PROFILE_OVERLAY="profiles/live-overlay"
 sh "$PROFILE_OVERLAY/gen-apkovl.sh" --arch "$ARCH" --desktop "$DESKTOP" --out "$APKVOL"
 
-echo "[iso] kernel + initramfs alınıyor (apk)..."
+echo "[iso] repolar (container):"
+cat /etc/apk/repositories
+apk update 2>&1 | tail -n 2
+
+echo "[iso] kernel paketi seçiliyor..."
+KPKG=""
+for cand in linux-lts linux-virt; do
+  if apk search -q -x "$cand" 2>/dev/null | grep -qx "$cand"; then KPKG="$cand"; break; fi
+done
+[ -n "$KPKG" ] || { echo "HATA: kernel paketi yok. Örnek arama:"; apk search -q "linux-" | head -n 20; exit 1; }
+echo "[iso] kernel paketi: $KPKG"
+
 PKGROOT="/tmp/chaos-pkgroot-$ARCH"
-rm -rf "$PKGROOT"; mkdir -p "$PKGROOT"
-# native arch varsayımı: CI'da arch'a uygun runner kullanılır (aarch64 -> arm runner)
-apk add --no-cache --initdb --root "$PKGROOT" --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VER/main" \
-  linux-lts 2>&1 | tail -n 3
+CACHE="$OUT/apkcache-$ARCH-$DESKTOP"
+rm -rf "$PKGROOT" "$CACHE"; mkdir -p "$PKGROOT" "$CACHE"
+# --root bootstrap yerine: apk fetch (container DB, imzalı) + tar ile aç.
+# Neden: --root --initdb anahtar/repo sorunları çıkarıyor, fetch deterministik.
+apk fetch -o "$CACHE" "$KPKG" 2>&1 | tail -n 2
+ls "$CACHE"/$KPKG-*.apk >/dev/null 2>&1 || { echo "HATA: $KPKG indirilemedi"; ls -la "$CACHE"; exit 1; }
+for f in "$CACHE"/*.apk; do tar -xzf "$f" -C "$PKGROOT"; done
 KV=$(ls "$PKGROOT/lib/modules" 2>/dev/null | head -n1 || true)
-[ -n "$KV" ] || { echo "kernel bulunamadı ($PKGROOT/lib/modules boş)"; exit 1; }
+[ -n "$KV" ] || { echo "HATA: modüller açılamadı"; find "$PKGROOT" -maxdepth 3 | head -n 20; exit 1; }
 echo "[iso] kernel: $KV"
-cp "$PKGROOT/boot/vmlinuz-lts" "$ISO_ROOT/boot/vmlinuz" 2>/dev/null || cp "$PKGROOT/boot/vmlinuz-$KV" "$ISO_ROOT/boot/vmlinuz"
+cp "$PKGROOT"/boot/vmlinuz-* "$ISO_ROOT/boot/vmlinuz"
 
 echo "[iso] initramfs üretiliyor..."
-apk add --no-cache mkinitfs 2>&1 | tail -n 1
+apk add --no-cache mkinitfs squashfs-tools 2>&1 | tail -n 1
 mkdir -p "$PKGROOT/etc/mkinitfs"
 cat > "$PKGROOT/etc/mkinitfs/mkinitfs.conf" <<EOF
 features="ata base ide keymap kms mmc nvme raid scsi usb virtio ext4 overlay squashfs"
 EOF
-# modloop için gerekli modüller paketinden initramfs üret
 mkinitfs -o "$ISO_ROOT/boot/initramfs" -b "$PKGROOT" "$KV" 2>&1 | tail -n 3
-# modloop (canlı sistemin /lib/modules squashfs'i)
-apk add --no-cache --root "$PKGROOT" --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VER/main" linux-modloop-lts 2>&1 | tail -n 1
-MODLOOP=$(ls "$PKGROOT"/lib/modloop*.squashfs "$PKGROOT"/boot/modloop* 2>/dev/null | head -n1 || true)
-if [ -n "$MODLOOP" ]; then cp "$MODLOOP" "$ISO_ROOT/boot/modloop.squashfs"; else echo "(uyarı: modloop bulunamadı, canlı boot yine de denenir)"; fi
+# modloop diye hazır paket YOK (Alpine resmi ISO da bunu derleme sırasında üretir).
+# Biz de paketlenmiş modüllerden üretiyoruz:
+echo "[iso] modloop üretiliyor (mksquashfs)..."
+mksquashfs "$PKGROOT/lib/modules/$KV" "$ISO_ROOT/boot/modloop.squashfs" -comp xz -noappend 2>&1 | tail -n 2
 
 mkdir -p "$ISO_ROOT/chaos"
 cp "$APKVOL" "$ISO_ROOT/chaos/apkovl.tar.gz"
