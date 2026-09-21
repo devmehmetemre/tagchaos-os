@@ -51,12 +51,24 @@ echo "[iso] kernel: $KV"
 cp "$PKGROOT"/boot/vmlinuz-* "$ISO_ROOT/boot/vmlinuz"
 
 echo "[iso] initramfs üretiliyor..."
-apk add --no-cache mkinitfs squashfs-tools 2>&1 | tail -n 1
+apk add --no-cache mkinitfs squashfs-tools kmod 2>&1 | tail -n 1
 mkdir -p "$PKGROOT/etc/mkinitfs"
 cat > "$PKGROOT/etc/mkinitfs/mkinitfs.conf" <<EOF
 features="ata base ide keymap kms mmc nvme raid scsi usb virtio ext4 overlay squashfs"
 EOF
-mkinitfs -o "$ISO_ROOT/boot/initramfs" -b "$PKGROOT" "$KV" 2>&1 | tail -n 3
+# mkinitfs initfs_apk_keys(): basedir'de etc/apk/keys varsa ama BOŞSA
+# `cp .../*` patlar ve && zinciri exit 1 ile build'i öldürür.
+# Host anahtarlarını önden kopyala: patlamayı önler + canlı boot
+# apkovl doğrulaması için anahtarlar initramfs'e gömülür.
+mkdir -p "$PKGROOT/etc/apk/keys"
+cp /etc/apk/keys/* "$PKGROOT/etc/apk/keys/" 2>/dev/null || true
+echo "[iso] apk anahtarları: $(ls "$PKGROOT/etc/apk/keys" | wc -l) adet"
+MKLOG="$OUT/mkinitfs-$ARCH-$DESKTOP.log"
+if mkinitfs -o "$ISO_ROOT/boot/initramfs" -b "$PKGROOT" "$KV" >"$MKLOG" 2>&1; then
+  tail -n 3 "$MKLOG"
+else
+  echo "HATA: mkinitfs başarısız, tam log:"; cat "$MKLOG"; exit 1
+fi
 # modloop diye hazır paket YOK (Alpine resmi ISO da bunu derleme sırasında üretir).
 # Biz de paketlenmiş modüllerden üretiyoruz:
 echo "[iso] modloop üretiliyor (mksquashfs)..."
