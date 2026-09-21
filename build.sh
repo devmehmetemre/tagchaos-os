@@ -38,17 +38,18 @@ sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     xorg-server xf86-input-libinput xf86-video-modesetting xf86-video-vesa
 
 echo "[*] Masaüstü ortamları indiriliyor (Offline ISO)..."
-# XFCE4 & LightDM
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
-    xfce4 xfce4-terminal lightdm lightdm-gtk-greeter
-
-# KDE Plasma & SDDM
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
-    plasma-desktop sddm
-
-# GNOME & GDM
-sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
+    xfce4 xfce4-terminal lightdm lightdm-gtk-greeter \
+    plasma-desktop sddm \
     gnome-shell gnome-terminal gdm
+
+echo "[*] OpenRC temel sistem servisleri yapılandırılıyor..."
+sudo chroot "$BUILD_DIR/rootfs" rc-update add devfs sysinit 2>/dev/null || true
+sudo chroot "$BUILD_DIR/rootfs" rc-update add dmesg sysinit 2>/dev/null || true
+sudo chroot "$BUILD_DIR/rootfs" rc-update add mdev sysinit 2>/dev/null || true
+sudo chroot "$BUILD_DIR/rootfs" rc-update add hostname boot 2>/dev/null || true
+sudo chroot "$BUILD_DIR/rootfs" rc-update add bootmisc boot 2>/dev/null || true
+sudo chroot "$BUILD_DIR/rootfs" rc-update add dbus default 2>/dev/null || true
 
 LTS_VER=$(ls "$BUILD_DIR/rootfs/lib/modules" | tail -n 1)
 MOD_PATH="$BUILD_DIR/rootfs/lib/modules/$LTS_VER"
@@ -98,23 +99,33 @@ INITRD_DIR="$BUILD_DIR/initramfs-root"
 mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
          "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/lib" "$INITRD_DIR/sysroot"
 
-# Busybox ve Kütüphanelerin Kopyalanması
+# Statik Cihaz Düğümleri
+sudo mknod -m 600 "$INITRD_DIR/dev/console" c 5 1 2>/dev/null || true
+sudo mknod -m 666 "$INITRD_DIR/dev/null" c 1 3 2>/dev/null || true
+sudo mknod -m 666 "$INITRD_DIR/dev/zero" c 1 5 2>/dev/null || true
+sudo mknod -m 620 "$INITRD_DIR/dev/tty1" c 4 1 2>/dev/null || true
+
+# Busybox ve Kütüphaneler
 sudo cp -a "$BUILD_DIR/rootfs/bin/busybox" "$INITRD_DIR/bin/"
 sudo cp -a "$BUILD_DIR/rootfs/lib/"* "$INITRD_DIR/lib/" 2>/dev/null || true
+ln -s lib "$INITRD_DIR/lib64" 2>/dev/null || true
 
 sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 
 mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
 sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/" || true
 
-# Init Script (Hata Korumalı ve Esnek Init Başlatıcı)
+# Init Script
 sudo tee "$INITRD_DIR/init" << 'EOF'
 #!/bin/sh
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t devtmpfs none /dev 2>/dev/null || true
 
-# Disk ve Dosya Sistemi Modülleri
+exec < /dev/console > /dev/console 2>&1
+
 modprobe ata_piix 2>/dev/null || true
 modprobe ahci 2>/dev/null || true
 modprobe sd_mod 2>/dev/null || true
@@ -122,7 +133,6 @@ modprobe sr_mod 2>/dev/null || true
 modprobe virtio_blk 2>/dev/null || true
 modprobe virtio_pci 2>/dev/null || true
 modprobe nvme 2>/dev/null || true
-modprobe usb_storage 2>/dev/null || true
 modprobe isofs 2>/dev/null || true
 modprobe ext4 2>/dev/null || true
 modprobe overlay 2>/dev/null || true
@@ -146,36 +156,30 @@ done
 if [ -n "$FOUND_DEV" ] && [ -f /mnt/cdrom/system.tar.xz ]; then
     mkdir -p /sysroot
     mount -t tmpfs -o size=85% tmpfs /sysroot
+    echo "[*] System arşivi açılıyor..."
     tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
 
-    mkdir -p /sysroot/mnt/cdrom
+    mkdir -p /sysroot/mnt/cdrom /sysroot/dev /sysroot/proc /sysroot/sys
     mount --move /mnt/cdrom /sysroot/mnt/cdrom
     mount --move /dev /sysroot/dev
     mount --move /proc /sysroot/proc
     mount --move /sys /sysroot/sys
 
-    INIT_BIN=""
     if [ -x /sysroot/sbin/init ]; then
-        INIT_BIN="/sbin/init"
-    elif [ -x /sysroot/sbin/openrc-init ]; then
-        INIT_BIN="/sbin/openrc-init"
+        exec switch_root /sysroot /sbin/init
     elif [ -x /sysroot/bin/busybox ]; then
-        INIT_BIN="/bin/busybox"
-    fi
-
-    if [ -n "$INIT_BIN" ]; then
-        exec switch_root /sysroot "$INIT_BIN"
+        exec switch_root /sysroot /bin/busybox init
     fi
 fi
 
 echo "[!] HATA: Live ISO arşivi veya init başlatıcısı bulunamadı!"
 while true; do
-    /bin/sh
+    /bin/sh < /dev/console > /dev/console 2>&1
 done
 EOF
 sudo chmod +x "$INITRD_DIR/init"
 
-# Initramfs Sıkıştırma
+# Initramfs Paketleme
 sudo bash -c "cd $INITRD_DIR && find . | cpio -o -H newc --owner=0:0 2>/dev/null | gzip -9 > $BUILD_DIR/iso/boot/initrd.img"
 
 # GRUB Yapılandırması
