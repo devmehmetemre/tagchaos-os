@@ -2,7 +2,11 @@
 # CHA OS - bootable hibrit ISO üretici (Alpine live tarzı)
 # Alpine container içinde root olarak çalışır. Harici bağımlılık: apk, grub-mkrescue/xorriso, mtools, squashfs-tools
 # Kullanım: ./tools/make-iso.sh --arch x86_64 --desktop xfce --version 1.0.0
+# Bu script SADECE Alpine içinde çalışır (apk gerekir).
+# CI'da Ubuntu host üzerinde DEĞİL, `docker run alpine:3.20` içinde çağrılır.
+# Bkz: .github/workflows/build.yml -> "Build ISO (Alpine Docker)"
 set -eu
+command -v apk >/dev/null 2>&1 || { echo "HATA: apk bulunamadı. Bu scripti Alpine Docker içinde çalıştırın:"; echo "  docker run --rm -v \"\$PWD:/work\" -w /work alpine:3.20 sh tools/make-iso.sh --arch x86_64 --desktop xfce"; exit 1; }
 
 ARCH="x86_64"; DESKTOP="xfce"; VERSION="dev"; ALPINE_VER="v3.20"
 while [ $# -gt 0 ]; do case "$1" in
@@ -24,8 +28,8 @@ rm -rf "$PKGROOT"; mkdir -p "$PKGROOT"
 # native arch varsayımı: CI'da arch'a uygun runner kullanılır (aarch64 -> arm runner)
 apk add --no-cache --initdb --root "$PKGROOT" --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VER/main" \
   linux-lts 2>&1 | tail -n 3
-KV=$(ls "$PKGROOT/lib/modules" | head -n1)
-[ -n "$KV" ] || { echo "kernel bulunamadı"; exit 1; }
+KV=$(ls "$PKGROOT/lib/modules" 2>/dev/null | head -n1 || true)
+[ -n "$KV" ] || { echo "kernel bulunamadı ($PKGROOT/lib/modules boş)"; exit 1; }
 echo "[iso] kernel: $KV"
 cp "$PKGROOT/boot/vmlinuz-lts" "$ISO_ROOT/boot/vmlinuz" 2>/dev/null || cp "$PKGROOT/boot/vmlinuz-$KV" "$ISO_ROOT/boot/vmlinuz"
 

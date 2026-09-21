@@ -38,5 +38,10 @@ tar -czf "$OUT/chaos-$VERSION-$ARCH.tar.gz" -C "$ROOTFS" .
 echo "[cha-os] OK: $OUT/chaos-$VERSION-$ARCH.tar.gz"
 if [ "$MAKE_ISO" = "yes" ]; then
   echo "[cha-os] ISO üretiliyor..."
+  if ! command -v apk >/dev/null 2>&1; then
+    echo "[cha-os] UYARI: apk yok (Ubuntu/Windows). ISO için Alpine Docker kullanın:"
+    echo "  docker run --rm -v \"\$PWD:/work\" -w /work alpine:3.20 sh tools/make-iso.sh --arch \"$ARCH\" --desktop \"$DESKTOP\" --version \"$VERSION\""
+    exit 1
+  fi
   sh tools/make-iso.sh --arch "$ARCH" --desktop "$DESKTOP" --version "$VERSION"
 fi
