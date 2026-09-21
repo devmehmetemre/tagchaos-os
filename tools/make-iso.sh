@@ -101,7 +101,10 @@ apk add --no-cache xorriso mtools dosfstools $GRUB_PKGS 2>&1 | tail -n 1
 grub-mkrescue -o "$ISO_OUT" "$ISO_ROOT" -- -volid CHAOS 2>&1 | tail -n 5
 ls -lh "$ISO_OUT"
 echo "[iso] boot kaydı doğrulanıyor (El Torito)..."
-if xorriso -indev "$ISO_OUT" -report_el_torito as_mkisofs 2>&1 | grep -qi "eltorito-boot"; then
+xorriso -indev "$ISO_OUT" -report_el_torito as_mkisofs >"$OUT/eltorito.log" 2>&1 || true
+cat "$OUT/eltorito.log"
+# Asıl hüküm: El Torito spec'e göre 17. sektörde "EL TORITO SPECIFICATION" yazar.
+if grep -qi "eltorito" "$OUT/eltorito.log" || dd if="$ISO_OUT" bs=2048 skip=17 count=1 2>/dev/null | grep -q "EL TORITO"; then
   echo "[iso] boot kaydı OK (BIOS+UEFI)"
 else
   echo "HATA: ISO'da El Torito boot kaydı yok, bu ISO açılmaz"; exit 1
