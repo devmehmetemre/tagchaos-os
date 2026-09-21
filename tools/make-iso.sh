@@ -6,6 +6,7 @@
 # CI'da Ubuntu host üzerinde DEĞİL, `docker run alpine:3.22` içinde çağrılır.
 # Bkz: .github/workflows/build.yml -> "Build ISO (Alpine Docker)"
 set -eu
+set -o pipefail 2>/dev/null || true  # borulu komut hatası yutulmasın (grub-mkrescue | tail)
 command -v apk >/dev/null 2>&1 || { echo "HATA: apk bulunamadı. Bu scripti Alpine Docker içinde çalıştırın:"; echo "  docker run --rm -v \"\$PWD:/work\" -w /work alpine:3.22 sh tools/make-iso.sh --arch x86_64 --desktop xfce"; exit 1; }
 
 ARCH="x86_64"; DESKTOP="xfce"; VERSION="dev"
@@ -80,7 +81,17 @@ menuentry "CHA OS (KMS, debug)" {
 EOF
 
 echo "[iso] hibrit ISO yazılıyor: $ISO_OUT"
-apk add --no-cache xorriso grub grub-efi mtools dosfstools 2>&1 | tail -n 1
+case "$ARCH" in
+  x86_64) GRUB_PKGS="grub grub-bios grub-efi";;  # bios=i386-pc (BIOS VM), efi=x86_64-efi (UEFI)
+  *) GRUB_PKGS="grub grub-efi";;                 # aarch64: UEFI-only
+esac
+apk add --no-cache xorriso mtools dosfstools $GRUB_PKGS 2>&1 | tail -n 1
 grub-mkrescue -o "$ISO_OUT" "$ISO_ROOT" -- -volid CHAOS 2>&1 | tail -n 5
 ls -lh "$ISO_OUT"
+echo "[iso] boot kaydı doğrulanıyor (El Torito)..."
+if xorriso -indev "$ISO_OUT" -report_el_torito as_mkisofs 2>&1 | grep -qi "eltorito-boot"; then
+  echo "[iso] boot kaydı OK (BIOS+UEFI)"
+else
+  echo "HATA: ISO'da El Torito boot kaydı yok, bu ISO açılmaz"; exit 1
+fi
 echo "[iso] OK"
