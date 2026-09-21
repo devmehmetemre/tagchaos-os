@@ -1,0 +1,27 @@
+name: build-chaos
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+        desktop: [xfce, lxqt, sway]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build rootfs + ISO
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget xorriso grub-pc-bin grub-efi mtools dosfstools squashfs-tools
+          chmod +x build.sh tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh kernel/build-kernel.sh profiles/desktop/xfce/chaos-xfce-defaults.sh cha-setup/cha-setup cha-setup/cha-setup-install branding/icons/install.sh
+          sh kernel/build-kernel.sh --arch ${{ matrix.arch }}
+          ./build.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev} --iso
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-${{ matrix.arch }}-${{ matrix.desktop }}
+          path: out/
