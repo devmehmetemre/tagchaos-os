@@ -42,9 +42,15 @@ CACHE="$OUT/apkcache-$ARCH-$DESKTOP"
 rm -rf "$PKGROOT" "$CACHE"; mkdir -p "$PKGROOT" "$CACHE"
 # --root bootstrap yerine: apk fetch (container DB, imzalı) + tar ile aç.
 # Neden: --root --initdb anahtar/repo sorunları çıkarıyor, fetch deterministik.
+# Kernel tek başına alınır (deps'leri sanal paket içerir, --recursive takılır).
 apk fetch -o "$CACHE" "$KPKG" 2>&1 | tail -n 2
 ls "$CACHE"/$KPKG-*.apk >/dev/null 2>&1 || { echo "HATA: $KPKG indirilemedi"; ls -la "$CACHE"; exit 1; }
+# initramfs'in /init'i için mini-kök ŞART: busybox(sh), apk, nlplug-findfs, musl...
+# (sadece kernel açılırsa initramfs'te /bin/sh olmaz -> "No working init found" paniği!)
+echo "[iso] mini-kök indiriliyor (alpine-base+mkinitfs)..."
+apk fetch --recursive -o "$CACHE" alpine-base mkinitfs 2>&1 | tail -n 2
 for f in "$CACHE"/*.apk; do tar -xzf "$f" -C "$PKGROOT"; done
+echo "[iso] PKGROOT: $(ls "$PKGROOT" | tr '\n' ' ') | sh: $(ls -l "$PKGROOT/bin/sh" 2>/dev/null || echo YOK)"
 KV=$(ls "$PKGROOT/lib/modules" 2>/dev/null | head -n1 || true)
 [ -n "$KV" ] || { echo "HATA: modüller açılamadı"; find "$PKGROOT" -maxdepth 3 | head -n 20; exit 1; }
 echo "[iso] kernel: $KV"
@@ -52,8 +58,10 @@ cp "$PKGROOT"/boot/vmlinuz-* "$ISO_ROOT/boot/vmlinuz"
 
 echo "[iso] initramfs üretiliyor..."
 apk add --no-cache mkinitfs squashfs-tools kmod 2>&1 | tail -n 1
-mkdir -p "$PKGROOT/etc/mkinitfs"
-cat > "$PKGROOT/etc/mkinitfs/mkinitfs.conf" <<EOF
+# DİKKAT: mkinitfs, -b dizinindeki config'i DEĞİL -c ile verileni okur;
+# features.d tanımlarını da -P ile host'tan almalıyız (basedir'de features.d yok).
+MKCONF="$OUT/mkinitfs-$ARCH-$DESKTOP.conf"
+cat > "$MKCONF" <<EOF
 features="ata base ide keymap kms mmc nvme raid scsi usb virtio ext4 overlay squashfs"
 EOF
 # mkinitfs initfs_apk_keys(): basedir'de etc/apk/keys varsa ama BOŞSA
@@ -64,11 +72,13 @@ mkdir -p "$PKGROOT/etc/apk/keys"
 cp /etc/apk/keys/* "$PKGROOT/etc/apk/keys/" 2>/dev/null || true
 echo "[iso] apk anahtarları: $(ls "$PKGROOT/etc/apk/keys" | wc -l) adet"
 MKLOG="$OUT/mkinitfs-$ARCH-$DESKTOP.log"
-if mkinitfs -o "$ISO_ROOT/boot/initramfs" -b "$PKGROOT" "$KV" >"$MKLOG" 2>&1; then
+if mkinitfs -P /etc/mkinitfs/features.d -c "$MKCONF" -o "$ISO_ROOT/boot/initramfs" -b "$PKGROOT" "$KV" >"$MKLOG" 2>&1; then
   tail -n 3 "$MKLOG"
 else
   echo "HATA: mkinitfs başarısız, tam log:"; cat "$MKLOG"; exit 1
 fi
+echo "[iso] initramfs içeriği (kritik dosyalar):"
+mkdir -p /tmp/chk-initramfs && rm -rf /tmp/chk-initramfs/* && (cd /tmp/chk-initramfs && gzip -dc "$ISO_ROOT/boot/initramfs" 2>/dev/null | cpio -t 2>/dev/null | grep -E "^(\./)?(init|bin/sh|bin/busybox|sbin/nlplug-findfs|sbin/apk)" || echo "(liste alınamadı)")
 # modloop diye hazır paket YOK (Alpine resmi ISO da bunu derleme sırasında üretir).
 # Biz de paketlenmiş modüllerden üretiyoruz:
 echo "[iso] modloop üretiliyor (mksquashfs)..."
