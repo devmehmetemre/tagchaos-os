@@ -14,6 +14,14 @@ jobs:
         desktop: [xfce, lxqt, sway]
     steps:
       - uses: actions/checkout@v4
+      - name: Show revision (hangi kod koşuyor?)
+        run: |
+          git rev-parse --short HEAD || true
+          echo "--- artifact path:"; grep -n "path:" .github/workflows/build.yml
+          echo "--- chmod:"; grep -n "chmod -R" .github/workflows/build.yml || echo YOK
+          echo "--- grub-bios:"; grep -n "grub-bios" tools/make-iso.sh || echo YOK
+          echo "--- keys preseed:"; grep -n "apk/keys" tools/make-iso.sh || echo YOK
+          echo "--- eltorito dd:"; grep -n "EL TORITO" tools/make-iso.sh || echo YOK
       - name: Build rootfs (host, apk gerekmez)
         run: |
           sudo apt-get update && sudo apt-get install -y wget
@@ -22,9 +30,9 @@ jobs:
           ./build.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev}
       - name: Build ISO (Alpine Docker, apk burada)
         run: |
-          docker run --rm -v "${{ github.workspace }}:/work" -w /work alpine:3.20 sh -c "chmod +x tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh && sh tools/make-iso.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev}"
+          docker run --rm -v "${{ github.workspace }}:/work" -w /work alpine:3.22 sh -c "chmod +x tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh && sh tools/make-iso.sh --arch ${{ matrix.arch }} --desktop ${{ matrix.desktop }} --version ${GITHUB_REF_NAME:-dev} && chmod -R a+rX /work/out"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: chaos-${{ matrix.arch }}-${{ matrix.desktop }}
-          path: out/
+          path: out/*.iso
