@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Derleme ortamı için gerekli araçların kontrolü
+if ! command -v mksquashfs &> /dev/null; then
+    echo "[!] 'squashfs-tools' paketi eksik. Yükleniyor..."
+    sudo apt-get update && sudo apt-get install -y squashfs-tools || sudo apk add squashfs-tools || true
+fi
+
 BUILD_DIR="/tmp/tgh-build"
 sudo rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/grub" "$BUILD_DIR/initramfs-root" dist
@@ -30,7 +36,7 @@ sudo chroot "$BUILD_DIR/rootfs" apk update
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
     linux-lts busybox e2fsprogs util-linux grub grub-bios rsync openrc iwd dialog \
     tzdata dbus shadow parted sfdisk neofetch bash mkinitfs \
-    font-dejavu font-noto
+    font-dejavu font-noto squashfs-tools
 
 # Ekran Kartı & Sürücüler
 sudo chroot "$BUILD_DIR/rootfs" apk add --no-cache --force-overwrite \
@@ -87,17 +93,16 @@ sudo umount "$BUILD_DIR/rootfs/proc" "$BUILD_DIR/rootfs/sys" "$BUILD_DIR/rootfs/
 # Çekirdek Kopyalama
 sudo cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz-lts"
 
-# Rootfs Paketleme
-echo "[*] System arşivi oluşturuluyor..."
-sudo tar --exclude="./dev/*" --exclude="./proc/*" --exclude="./sys/*" \
-         --exclude="./tmp/*" --exclude="./run/*" --exclude="./mnt/*" \
-         --exclude="./boot/vmlinuz*" \
-         -cJf "$BUILD_DIR/iso/system.tar.xz" -C "$BUILD_DIR/rootfs" .
+# Rootfs SquashFS İmajı Oluşturma (RAM kilitlenmesini engeller)
+echo "[*] SquashFS imajı oluşturuluyor (RAM dostu canlı sistem)..."
+sudo mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/rootfs.squashfs" \
+    -e dev proc sys tmp run mnt boot/vmlinuz* -comp xz
 
 # Live Initramfs Yapılandırması
 INITRD_DIR="$BUILD_DIR/initramfs-root"
 mkdir -p "$INITRD_DIR/bin" "$INITRD_DIR/sbin" "$INITRD_DIR/etc" "$INITRD_DIR/proc" \
-         "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/lib" "$INITRD_DIR/sysroot"
+         "$INITRD_DIR/sys" "$INITRD_DIR/dev" "$INITRD_DIR/mnt/cdrom" "$INITRD_DIR/lib" \
+         "$INITRD_DIR/squash" "$INITRD_DIR/sysroot"
 
 # Statik Cihaz Düğümleri
 sudo mknod -m 600 "$INITRD_DIR/dev/console" c 5 1 2>/dev/null || true
@@ -115,7 +120,7 @@ sudo chroot "$INITRD_DIR" /bin/busybox --install -s || true
 mkdir -p "$INITRD_DIR/lib/modules/$LTS_VER"
 sudo cp -a "$MOD_PATH" "$INITRD_DIR/lib/modules/" || true
 
-# Init Script
+# Init Script (OverlayFS & SquashFS Mount)
 sudo tee "$INITRD_DIR/init" << 'EOF'
 #!/bin/sh
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
@@ -133,8 +138,9 @@ modprobe sr_mod 2>/dev/null || true
 modprobe virtio_blk 2>/dev/null || true
 modprobe virtio_pci 2>/dev/null || true
 modprobe nvme 2>/dev/null || true
+modprobe loop 2>/dev/null || true
 modprobe isofs 2>/dev/null || true
-modprobe ext4 2>/dev/null || true
+modprobe squashfs 2>/dev/null || true
 modprobe overlay 2>/dev/null || true
 
 mdev -s 2>/dev/null || true
@@ -145,7 +151,7 @@ for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
     [ -b "$dev" ] || continue
     mkdir -p /mnt/cdrom
     if mount -r "$dev" /mnt/cdrom 2>/dev/null; then
-        if [ -f /mnt/cdrom/system.tar.xz ]; then
+        if [ -f /mnt/cdrom/boot/rootfs.squashfs ]; then
             FOUND_DEV="$dev"
             break
         fi
@@ -153,11 +159,16 @@ for dev in /dev/sr* /dev/sd* /dev/vd* /dev/nvme* /dev/cdrom; do
     fi
 done
 
-if [ -n "$FOUND_DEV" ] && [ -f /mnt/cdrom/system.tar.xz ]; then
-    mkdir -p /sysroot
-    mount -t tmpfs -o size=85% tmpfs /sysroot
-    echo "[*] System arşivi açılıyor..."
-    tar -xf /mnt/cdrom/system.tar.xz -C /sysroot
+if [ -n "$FOUND_DEV" ] && [ -f /mnt/cdrom/boot/rootfs.squashfs ]; then
+    echo "[*] SquashFS imajı bağlanıyor..."
+    mkdir -p /squash /rw /sysroot
+    mount -t squashfs -o loop /mnt/cdrom/boot/rootfs.squashfs /squash
+
+    echo "[*] OverlayFS (RAM katmanı) hazırlanıyor..."
+    mount -t tmpfs -o size=75% tmpfs /rw
+    mkdir -p /rw/upper /rw/work
+
+    mount -t overlay overlay -o lowerdir=/squash,upperdir=/rw/upper,workdir=/rw/work /sysroot
 
     mkdir -p /sysroot/mnt/cdrom /sysroot/dev /sysroot/proc /sysroot/sys
     mount --move /mnt/cdrom /sysroot/mnt/cdrom
@@ -172,7 +183,7 @@ if [ -n "$FOUND_DEV" ] && [ -f /mnt/cdrom/system.tar.xz ]; then
     fi
 fi
 
-echo "[!] HATA: Live ISO arşivi veya init başlatıcısı bulunamadı!"
+echo "[!] HATA: SquashFS imajı veya init başlatıcısı bulunamadı!"
 while true; do
     /bin/sh < /dev/console > /dev/console 2>&1
 done
