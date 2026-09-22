@@ -22,6 +22,7 @@ jobs:
           echo "--- grub-bios:"; grep -n "grub-bios" tools/make-iso.sh || echo YOK
           echo "--- keys preseed:"; grep -n "apk/keys" tools/make-iso.sh || echo YOK
           echo "--- eltorito dd:"; grep -n "EL TORITO" tools/make-iso.sh || echo YOK
+          echo "--- md5:"; md5sum cha-setup/cha-setup cha-setup/cha-setup-install tools/make-iso.sh profiles/live-overlay/gen-apkovl.sh
       - name: Build rootfs (host, apk gerekmez)
         run: |
           sudo apt-get update && sudo apt-get install -y wget
