@@ -41,8 +41,11 @@ find_iface() {
 NET_IF=$(find_iface || true)
 if [ -n "$NET_IF" ]; then
   echo "[install] arayüz: $NET_IF"
-  udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || echo "(uyarı: DHCP yok, diske kurulum ağ gerektirir)"
+  udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || echo "(uyarı: DHCP yok)"
   tail -n 2 /tmp/cha-dhcp.log 2>/dev/null || true
+else
+  echo "(uyarı: ağ arayüzü yok; görünenler: $(ls /sys/class/net 2>/dev/null | tr '\n' ' '))"
+  echo "NOT: masaüstü kurulumu ağ ister (VirtualBox: Ağ > NAT + 'Kablo bağlı')"
 fi
 
 echo "[install] disk hazırlanıyor: $DISK"
@@ -73,8 +76,24 @@ mkdir -p /mnt/chaos/boot/efi
 mount "$EFI_PART" /mnt/chaos/boot/efi
 
 echo "[install] base sistem kuruluyor..."
-apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
-  --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+# ISO üzerindeki yerel repo varsa ÇEVRİMDIŞI kur (ağ şart değil).
+# (Canlı kökün /etc/apk/repositories dosyası zaten medyayı gösterir ama
+#  ek remote repo fetch hatası her şeyi patlatır; o yüzden yerel repo tek başına.)
+LOCALREPO=""
+for m in /media/*; do
+  [ -f "$m/apks/.boot_repository" ] && LOCALREPO="$m/apks" && break
+done
+mkdir -p /mnt/chaos/etc/apk/keys
+cp /etc/apk/keys/* /mnt/chaos/etc/apk/keys/ 2>/dev/null || true
+if [ -n "$LOCALREPO" ]; then
+  echo "[install] yerel repo: $LOCALREPO"
+  apk add --no-cache --repository "$LOCALREPO" \
+    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+else
+  echo "(uyarı: yerel repo bulunamadı, ağdan kuruluyor)"
+  apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
+    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+fi
 
 for d in dev proc sys; do mount --bind "/$d" "/mnt/chaos/$d"; done
 
@@ -115,7 +134,11 @@ case "$DESKTOP" in
   *) PKGS="openssh";;
 esac
 echo "[install] masaüstü: $DESKTOP -> $PKGS"
-chroot /mnt/chaos apk add --no-cache $PKGS >/dev/null
+chroot /mnt/chaos apk add --no-cache $PKGS >/dev/null || {
+  echo "HATA: paketler indirilemedi (ağ yok?). Masaüstü kurulumu ağ ister:"
+  echo "  VirtualBox: Ayarlar > Ağ > NAT + 'Kablo bağlı' açık olmalı."
+  exit 1
+}
 chroot /mnt/chaos rc-update add dbus default 2>/dev/null || true
 case "$DESKTOP" in
   xfce) chroot /mnt/chaos rc-update add lightdm default 2>/dev/null || true;;

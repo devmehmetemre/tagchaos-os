@@ -141,7 +141,8 @@ main() {
     udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || log "(uyarı: DHCP lease alınamadı)"
     tail -n 2 /tmp/cha-dhcp.log 2>/dev/null | tee -a "$LOG" || true
   else
-    log "(uyarı: ağ arayüzü bulunamadı)"
+    log "(uyarı: ağ arayüzü bulunamadı; görünenler: $(ls /sys/class/net 2>/dev/null | tr '\n' ' '))"
+    log "NOT: VirtualBox'ta Ağ > NAT + 'Kablo bağlı' açık olmalı (masaüstü için)"
   fi
 
   log "kurulum başlıyor..."
