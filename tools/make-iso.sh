@@ -71,6 +71,8 @@ echo "[iso] PKGROOT: $(ls "$PKGROOT" | tr '\n' ' ') | sh: $(ls -l "$PKGROOT/bin/
 KV=$(ls "$PKGROOT/lib/modules" 2>/dev/null | head -n1 || true)
 [ -n "$KV" ] || { echo "HATA: modüller açılamadı"; find "$PKGROOT" -maxdepth 3 | head -n 20; exit 1; }
 echo "[iso] kernel: $KV"
+FLAVOR=${KV##*-}
+MODLOOP_FILE="modloop-$FLAVOR"
 cp "$PKGROOT"/boot/vmlinuz-* "$ISO_ROOT/boot/vmlinuz"
 
 echo "[iso] initramfs üretiliyor..."
@@ -101,23 +103,30 @@ echo "[iso] initramfs içeriği (kritik dosyalar):"
 mkdir -p /tmp/chk-initramfs && rm -rf /tmp/chk-initramfs/* && (cd /tmp/chk-initramfs && gzip -dc "$ISO_ROOT/boot/initramfs" 2>/dev/null | cpio -t 2>/dev/null | grep -E "^(\./)?(init|bin/sh|bin/busybox|sbin/nlplug-findfs|sbin/apk)" || echo "(liste alınamadı)")
 # modloop diye hazır paket YOK (Alpine resmi ISO da bunu derleme sırasında üretir).
 # Biz de paketlenmiş modüllerden üretiyoruz:
-echo "[iso] modloop üretiliyor (mksquashfs)..."
-mksquashfs "$PKGROOT/lib/modules/$KV" "$ISO_ROOT/boot/modloop.squashfs" -comp xz -noappend 2>&1 | tail -n 2
+echo "[iso] modloop üretiliyor (mksquashfs -> $MODLOOP_FILE)..."
+mksquashfs "$PKGROOT/lib/modules/$KV" "$ISO_ROOT/boot/$MODLOOP_FILE" -comp xz -noappend 2>&1 | tail -n 2
 
 mkdir -p "$ISO_ROOT/chaos"
 cp "$APKVOL" "$ISO_ROOT/chaos/apkovl.tar.gz"
+# apkovl otomatik tespiti (*.apkovl.tar.gz taraması) kökte de bulsun diye kopya
+cp "$APKVOL" "$ISO_ROOT/chaos-$VERSION.apkovl.tar.gz"
 cp branding/wallpaper.svg "$ISO_ROOT/chaos/wallpaper.svg" 2>/dev/null || true
 
 echo "[iso] grub.cfg yazılıyor..."
 cat > "$ISO_ROOT/boot/grub/grub.cfg" <<EOF
 set timeout=5
 set default=0
+# NOT: apkovl= ve modloop= parametresi YOK (bilerek).
+# - apkovl: initramfs medya üzerindeki *.apkovl.tar.gz dosyasını otomatik bulur.
+#   Göreli yol yazılırsa (apkovl=chaos/...) overlay HİÇ uygulanmaz!
+# - modloop: chaos-modloop servisi medyadaki modloop-*.squashfs dosyasını bağlar.
+# - modules=: gerekli modüller initramfs'teyken yüklenir, switch_root sonrası da durur.
 menuentry "CHA OS $VERSION ($DESKTOP, live)" {
-  linux /boot/vmlinuz nomodeset apkovl=chaos/apkovl.tar.gz modloop=/boot/modloop.squashfs console=tty0
+  linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage console=tty0
   initrd /boot/initramfs
 }
 menuentry "CHA OS (KMS, debug)" {
-  linux /boot/vmlinuz apkovl=chaos/apkovl.tar.gz modloop=/boot/modloop.squashfs console=tty0 debug
+  linux /boot/vmlinuz modules=loop,squashfs,sd-mod,usb-storage console=tty0 debug
   initrd /boot/initramfs
 }
 EOF

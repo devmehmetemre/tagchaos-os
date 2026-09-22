@@ -1,0 +1,26 @@
+#!/sbin/openrc-run
+# CHA OS modloop mounter (fallback).
+# Resmi modloop servisi yoksa/calismazsa kernel modullerini ISO'dan baglar.
+# Olmazsa canli sistemde mount -t ext4/vfat calismaz -> kurulum durur.
+description="CHA OS: mount modloop modules from boot media"
+
+start() {
+	local kv f dir
+	kv=$(uname -r)
+	dir=/usr/lib/modules/$kv
+	[ -d "$dir" ] || mkdir -p "$dir"
+	if mountpoint -q "$dir" 2>/dev/null; then
+		einfo "$dir already mounted"
+		return 0
+	fi
+	for f in /media/*/boot/modloop-*.squashfs; do
+		[ -f "$f" ] || continue
+		ebegin "Mounting modloop $f"
+		if mount -o loop,ro "$f" "$dir"; then
+			eend 0
+			return 0
+		fi
+	done
+	eend 1 "no modloop found on boot media"
+	return 1
+}

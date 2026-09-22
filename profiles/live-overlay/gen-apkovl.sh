@@ -46,6 +46,11 @@ EOF
 mkdir -p "$TMP/usr/sbin"
 cp cha-setup/cha-setup "$TMP/usr/sbin/"; chmod +x "$TMP/usr/sbin/cha-setup"
 cp cha-setup/cha-setup-install "$TMP/usr/sbin/"; chmod +x "$TMP/usr/sbin/cha-setup-install"
+# modloop mount servisi (resmi servis tutmazsa diye yedek; ext4/vfat mount için şart)
+mkdir -p "$TMP/etc/init.d" "$TMP/etc/runlevels/sysinit"
+cp profiles/live-overlay/chaos-modloop.initd "$TMP/etc/init.d/chaos-modloop"
+chmod +x "$TMP/etc/init.d/chaos-modloop"
+ln -sf /etc/init.d/chaos-modloop "$TMP/etc/runlevels/sysinit/chaos-modloop"
 # openrc: live'da ağ + konsol
 ln -sf /etc/init.d/networking "$TMP/etc/runlevels/default/" 2>/dev/null || true
 tar -czf "$OUT" -C "$TMP" etc root usr
