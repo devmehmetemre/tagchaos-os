@@ -25,8 +25,22 @@ done
 [ -n "$ROOTPW" ] || { echo "root şifresi gerekli"; exit 1; }
 
 echo "[install] ağ kontrolü (canlı sistemde DHCP deneniyor)..."
-NET_IF=$(ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo$/ {n=$2; sub(/@.*/, "", n); print n; exit}')
+# ip applet'i olmayabilir -> sysfs'ten bul (lo hariç, önce gerçek cihaz)
+find_iface() {
+  for d in /sys/class/net/*; do
+    i=${d##*/}
+    [ "$i" = "lo" ] && continue
+    [ -e "$d/device" ] && { echo "$i"; return 0; }
+  done
+  for d in /sys/class/net/*; do
+    i=${d##*/}
+    [ "$i" = "lo" ] || { echo "$i"; return 0; }
+  done
+  return 1
+}
+NET_IF=$(find_iface || true)
 if [ -n "$NET_IF" ]; then
+  echo "[install] arayüz: $NET_IF"
   udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || echo "(uyarı: DHCP yok, diske kurulum ağ gerektirir)"
   tail -n 2 /tmp/cha-dhcp.log 2>/dev/null || true
 fi
@@ -40,6 +54,16 @@ parted -s "$DISK" mklabel gpt \
   mkpart primary ext4 513MiB 100%
 EFI_PART="${DISK}1"; ROOT_PART="${DISK}2"
 case "$DISK" in *nvme*|*mmcblk*) EFI_PART="${DISK}p1"; ROOT_PART="${DISK}p2";; esac
+
+echo "[install] bölüm tablosu çekirdeğe okutuluyor (partprobe+mdev)..."
+partprobe "$DISK" 2>/dev/null || partx -u "$DISK" 2>/dev/null || true
+mdev -s 2>/dev/null || true
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  [ -b "$EFI_PART" ] && [ -b "$ROOT_PART" ] && break
+  sleep 1
+done
+[ -b "$EFI_PART" ] || { echo "HATA: $EFI_PART oluşmadı"; ls -l "${DISK}"* 2>/dev/null; exit 1; }
+[ -b "$ROOT_PART" ] || { echo "HATA: $ROOT_PART oluşmadı"; exit 1; }
 
 mkfs.fat -F32 "$EFI_PART"
 mkfs.ext4 -F -L CHAOS_ROOT "$ROOT_PART"

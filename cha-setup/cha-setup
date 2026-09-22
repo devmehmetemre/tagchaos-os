@@ -61,11 +61,36 @@ ask_users() {
   echo "$USERNAME"
 }
 
+# Yeni şifre belirleme (2 kez sorar, uyuşmazsa tekrar). Mevcut şifre SORMAZ.
+ask_pw() {
+  _label="$1"; _out="$2"; _pw1=""; _pw2="x"
+  while [ "$_pw1" != "$_pw2" ] || [ -z "$_pw1" ]; do
+    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "YENİ $_label şifresini BELİRLE:" 8 55 2>&1 >/dev/tty > /tmp/.pw1 || exit 1
+    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "Aynı şifreyi tekrar yaz (doğrula):" 8 55 2>&1 >/dev/tty > /tmp/.pw2 || exit 1
+    _pw1=$(cat /tmp/.pw1); _pw2=$(cat /tmp/.pw2)
+    if [ "$_pw1" != "$_pw2" ]; then
+      $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "Şifreler uyuşmadı, tekrar dene." 6 45
+    elif [ -z "$_pw1" ]; then
+      $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "Boş şifre olmaz, tekrar dene." 6 45
+    else
+      case "$_pw1" in
+        *:*) $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "':' karakteri kullanılamaz, başka şifre dene." 6 50; _pw1=""; _pw2="x";;
+      esac
+    fi
+  done
+  printf '%s' "$_pw1" > "$_out"
+  rm -f /tmp/.pw1 /tmp/.pw2
+}
+
 main() {
   need_root
   $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "CHA OS kurulumuna hoş geldiniz!\nAlpine tabanlı minimal, hızlı sistem." 8 50
 
   LANG_CHOICE=$(ask_lang); log "lang=$LANG_CHOICE"
+  case "$LANG_CHOICE" in
+    tr) export LANG=tr_TR.UTF-8;; de) export LANG=de_DE.UTF-8;; *) export LANG=en_US.UTF-8;;
+  esac
+  export LC_ALL="$LANG" 2>/dev/null || true
   TZ=$(ask_timezone); log "tz=$TZ"
   KEYMAP=$(ask_keymap); log "keymap=$KEYMAP"
   HOSTNAME=$(ask_hostname); log "hostname=$HOSTNAME"
@@ -73,8 +98,8 @@ main() {
   DESKTOP=$(ask_desktop); log "desktop=$DESKTOP"
   USERNAME=$(ask_users); log "user=$USERNAME"
 
-  $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "Root şifresi:" 8 40 2>&1 >/dev/tty > /tmp/.rootpw || exit 1
-  $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "$USERNAME şifresi:" 8 40 2>&1 >/dev/tty > /tmp/.userpw || exit 1
+  ask_pw "root" /tmp/.rootpw
+  ask_pw "$USERNAME kullanıcısı" /tmp/.userpw
   ROOTPW=$(cat /tmp/.rootpw; rm -f /tmp/.rootpw)
   USERPW=$(cat /tmp/.userpw; rm -f /tmp/.userpw)
 
@@ -82,8 +107,21 @@ main() {
 
   # canlı sistemde ağ yapılandırması yoksa diske kurulum (apk) başarısız olur
   log "ağ yapılandırılıyor (DHCP)..."
-  NET_IF=$(ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo$/ {n=$2; sub(/@.*/, "", n); print n; exit}')
+  # ip applet'i olmayabilir -> sysfs'ten bul (lo hariç, önce gerçek cihaz)
+  NET_IF=""
+  for d in /sys/class/net/*; do
+    i=${d##*/}
+    [ "$i" = "lo" ] && continue
+    if [ -e "$d/device" ]; then NET_IF="$i"; break; fi
+  done
+  if [ -z "$NET_IF" ]; then
+    for d in /sys/class/net/*; do
+      i=${d##*/}
+      [ "$i" = "lo" ] || { NET_IF="$i"; break; }
+    done
+  fi
   if [ -n "$NET_IF" ]; then
+    log "arayüz: $NET_IF"
     udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || log "(uyarı: DHCP lease alınamadı)"
     tail -n 2 /tmp/cha-dhcp.log 2>/dev/null | tee -a "$LOG" || true
   else
