@@ -40,6 +40,8 @@ ADIR="$ISO_ROOT/apks/$ARCH"; mkdir -p "$ADIR"
 # (chaos-*/lsblk gibi dosya/komut satırları repo filtresiyle elenir)
 WORLD_PKGS=$(tar -xzOf "$APKVOL" etc/apk/world 2>/dev/null | grep -v -e '^#' -e '^$' | tr '\n' ' ')
 DESK_PKGS=$(grep -v -e '^#' -e '^$' "profiles/packages.$DESKTOP" 2>/dev/null | grep -v -e '^chaos-' -e '^lsblk$' | tr '\n' ' ')
+[ -n "$DESK_PKGS" ] || { echo "HATA: profiles/packages.$DESKTOP okunamadi/bos"; ls profiles/; exit 1; }
+echo "[iso] masaustu profili ($DESKTOP): $(echo "$DESK_PKGS" | wc -w) paket -> repoya gomuluyor"
 FETCH_LIST=""
 for p in alpine-base linux-lts linux-virt linux-firmware-none $WORLD_PKGS $DESK_PKGS; do
   if apk search -q -x "$p" 2>/dev/null | grep -qx "$p"; then
