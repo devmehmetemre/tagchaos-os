@@ -31,7 +31,9 @@ apk update 2>&1 | tail -n 2
 
 echo "[iso] canlı repo hazırlanıyor (apks/$ARCH, resmi mkimage düzeni)..."
 apk add --no-cache abuild 2>&1 | tail -n 1
-ls ~/.abuild/*.rsa >/dev/null 2>&1 || abuild-keygen -a -i -n </dev/null 2>&1 | tail -n 2
+# NOT: -i (install) doas ister, container'da yok. Anahtarı üretip pub'ı root olarak kopyala.
+ls ~/.abuild/*.rsa >/dev/null 2>&1 || abuild-keygen -a -n </dev/null 2>&1 | tail -n 2
+cp ~/.abuild/*.rsa.pub /etc/apk/keys/ 2>/dev/null || true
 ls /etc/apk/keys/*.pub >/dev/null 2>&1 || { echo "HATA: abuild anahtarı üretilemedi"; exit 1; }
 ADIR="$ISO_ROOT/apks/$ARCH"; mkdir -p "$ADIR"
 # tek doğruluk kaynağı: apkovl içindeki world + alpine-base
