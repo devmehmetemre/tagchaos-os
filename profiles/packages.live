@@ -1,0 +1,16 @@
+# CHA OS canlı sistem world listesi
+# - gen-apkovl.sh bunu apkovl içine etc/apk/world olarak yazar
+# - make-iso.sh aynı listeyi ISO içi repoya (apks/$ARCH) gömer
+# Açılışta initramfs apk ile bunları KURAR; eksik/repoda yoksa recovery shell olur!
+# alpine-base yazılmaz (init script otomatik ekler). grub-bios x86_64'te otomatik eklenir.
+dialog
+parted
+dosfstools
+e2fsprogs
+util-linux
+shadow
+sudo
+tzdata
+musl-locales
+alpine-conf
+openssh

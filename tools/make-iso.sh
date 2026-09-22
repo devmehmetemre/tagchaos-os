@@ -29,6 +29,21 @@ echo "[iso] repolar (container):"
 cat /etc/apk/repositories
 apk update 2>&1 | tail -n 2
 
+echo "[iso] canlı repo hazırlanıyor (apks/$ARCH, resmi mkimage düzeni)..."
+apk add --no-cache abuild 2>&1 | tail -n 1
+ls ~/.abuild/*.rsa >/dev/null 2>&1 || abuild-keygen -a -i -n </dev/null 2>&1 | tail -n 2
+ls /etc/apk/keys/*.pub >/dev/null 2>&1 || { echo "HATA: abuild anahtarı üretilemedi"; exit 1; }
+ADIR="$ISO_ROOT/apks/$ARCH"; mkdir -p "$ADIR"
+# tek doğruluk kaynağı: apkovl içindeki world + alpine-base
+FETCH_LIST="alpine-base $(tar -xzOf "$APKVOL" etc/apk/world 2>/dev/null | grep -v -e '^#' -e '^$' | tr '\n' ' ')"
+echo "[iso] repo paketleri: $FETCH_LIST"
+apk fetch --recursive -o "$ADIR" $FETCH_LIST 2>&1 | tail -n 3
+for p in $FETCH_LIST; do ls "$ADIR/$p"-*.apk >/dev/null 2>&1 || { echo "HATA: $p ISO reposunda yok"; exit 1; }; done
+apk index --description "CHA OS $VERSION" --rewrite-arch "$ARCH" --index "$ADIR/APKINDEX.tar.gz" --output "$ADIR/APKINDEX.tar.gz" "$ADIR"/*.apk 2>&1 | tail -n 2
+abuild-sign "$ADIR/APKINDEX.tar.gz" 2>&1 | tail -n 2
+touch "$ISO_ROOT/apks/.boot_repository"
+echo "[iso] repo: $(ls "$ADIR"/*.apk | wc -l) paket, APKINDEX imzalı"
+
 echo "[iso] kernel paketi seçiliyor..."
 KPKG=""
 for cand in linux-lts linux-virt; do
@@ -61,8 +76,11 @@ apk add --no-cache mkinitfs squashfs-tools kmod 2>&1 | tail -n 1
 # DİKKAT: mkinitfs, -b dizinindeki config'i DEĞİL -c ile verileni okur;
 # features.d tanımlarını da -P ile host'tan almalıyız (basedir'de features.d yok).
 MKCONF="$OUT/mkinitfs-$ARCH-$DESKTOP.conf"
+# resmi profil seti (cdrom=ISO medyası, dhcp=ağ) + bizimkiler (overlay=canlı kök, kms/nvme)
+MKFEATURES="ata base bootchart cdrom dhcp ext4 ide keymap kms mmc nvme overlay raid scsi squashfs usb virtio"
+case "$ARCH" in x86_64) MKFEATURES="$MKFEATURES nfit";; aarch64|arm*) MKFEATURES="$MKFEATURES phy";; esac
 cat > "$MKCONF" <<EOF
-features="ata base ide keymap kms mmc nvme raid scsi usb virtio ext4 overlay squashfs"
+features="$MKFEATURES"
 EOF
 # mkinitfs initfs_apk_keys(): basedir'de etc/apk/keys varsa ama BOŞSA
 # `cp .../*` patlar ve && zinciri exit 1 ile build'i öldürür.

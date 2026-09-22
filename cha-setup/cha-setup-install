@@ -24,6 +24,13 @@ done
 [ -n "$DISK" ] || { echo "disk gerekli"; exit 1; }
 [ -n "$ROOTPW" ] || { echo "root şifresi gerekli"; exit 1; }
 
+echo "[install] ağ kontrolü (canlı sistemde DHCP deneniyor)..."
+NET_IF=$(ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo$/ {n=$2; sub(/@.*/, "", n); print n; exit}')
+if [ -n "$NET_IF" ]; then
+  udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || echo "(uyarı: DHCP yok, diske kurulum ağ gerektirir)"
+  tail -n 2 /tmp/cha-dhcp.log 2>/dev/null || true
+fi
+
 echo "[install] disk hazırlanıyor: $DISK"
 apk add --no-cache dosfstools e2fsprogs parted 2>&1 | tail -n 2
 

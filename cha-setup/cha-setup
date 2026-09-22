@@ -80,6 +80,16 @@ main() {
 
   $DIALOG_BIN --backtitle "$BACKTITLE" --yesno "Özet:\nDil: $LANG_CHOICE\nTZ: $TZ\nKlavye: $KEYMAP\nHost: $HOSTNAME\nDisk: $DISK (SİLİNECEK)\nMasaüstü: $DESKTOP\nKullanıcı: $USERNAME\n\nDevam edilsin mi?" 16 60 || exit 1
 
+  # canlı sistemde ağ yapılandırması yoksa diske kurulum (apk) başarısız olur
+  log "ağ yapılandırılıyor (DHCP)..."
+  NET_IF=$(ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo$/ {n=$2; sub(/@.*/, "", n); print n; exit}')
+  if [ -n "$NET_IF" ]; then
+    udhcpc -i "$NET_IF" -q -n >/tmp/cha-dhcp.log 2>&1 || log "(uyarı: DHCP lease alınamadı)"
+    tail -n 2 /tmp/cha-dhcp.log 2>/dev/null | tee -a "$LOG" || true
+  else
+    log "(uyarı: ağ arayüzü bulunamadı)"
+  fi
+
   log "kurulum başlıyor..."
   # setup-alpine tarzı adımlar CHA OS'e uyarlandı:
   # 1. disk hazırla

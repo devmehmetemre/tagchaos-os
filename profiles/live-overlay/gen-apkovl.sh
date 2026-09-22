@@ -18,6 +18,12 @@ cp branding/os-release "$TMP/etc/os-release" 2>/dev/null || true
 cp branding/wallpaper.svg "$TMP/usr/share/chaos/" 2>/dev/null || true
 cp -r branding/icons "$TMP/usr/share/chaos/" 2>/dev/null || true
 cp -r branding/themes "$TMP/usr/share/chaos/" 2>/dev/null || true
+# canlı world: açılışta initramfs apk ile ISO reposundan kurar (yoksa recovery shell!)
+mkdir -p "$TMP/etc/apk"
+grep -v -e '^#' -e '^$' profiles/packages.live > "$TMP/etc/apk/world"
+case "$ARCH" in x86_64|x86) echo "grub-bios" >> "$TMP/etc/apk/world";; esac
+# varsayılan boot servislerini aç (modloop/devfs/hostname/firstboot/syslog...)
+: > "$TMP/etc/.default_boot_services"
 mkdir -p "$TMP/etc/skel" "$TMP/etc/lightdm" "$TMP/etc/sddm.conf.d"
 # masaüstü varsayılanları overlay'e göm
 sh profiles/desktop/xfce/chaos-xfce-defaults.sh "$TMP/etc/skel" 2>/dev/null || true
