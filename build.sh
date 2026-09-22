@@ -27,6 +27,7 @@ cp branding/lightdm/lightdm-gtk-greeter.conf "$ROOTFS/usr/share/chaos/" 2>/dev/n
 cp branding/sddm/sddm.conf "$ROOTFS/usr/share/chaos/sddm-chaos.conf" 2>/dev/null || true
 cp branding/motd "$ROOTFS/etc/motd" 2>/dev/null || true
 cp branding/issue "$ROOTFS/etc/issue" 2>/dev/null || true
+cp profiles/packages.live profiles/packages.xfce profiles/packages.lxqt profiles/packages.sway profiles/packages.none "$ROOTFS/usr/share/chaos/" 2>/dev/null || true
 cp cha-setup/cha-setup "$ROOTFS/usr/sbin/cha-setup"; chmod +x "$ROOTFS/usr/sbin/cha-setup"
 cp cha-setup/cha-setup-install "$ROOTFS/usr/sbin/cha-setup-install"; chmod +x "$ROOTFS/usr/sbin/cha-setup-install"
 

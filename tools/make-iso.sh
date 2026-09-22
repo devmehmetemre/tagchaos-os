@@ -36,9 +36,19 @@ ls ~/.abuild/*.rsa >/dev/null 2>&1 || abuild-keygen -a -n </dev/null 2>&1 | tail
 cp ~/.abuild/*.rsa.pub /etc/apk/keys/ 2>/dev/null || true
 ls /etc/apk/keys/*.pub >/dev/null 2>&1 || { echo "HATA: abuild anahtarı üretilemedi"; exit 1; }
 ADIR="$ISO_ROOT/apks/$ARCH"; mkdir -p "$ADIR"
-# tek doğruluk kaynağı: apkovl içindeki world + alpine-base
-FETCH_LIST="alpine-base $(tar -xzOf "$APKVOL" etc/apk/world 2>/dev/null | grep -v -e '^#' -e '^$' | tr '\n' ' ')"
-echo "[iso] repo paketleri: $FETCH_LIST"
+# tek doğruluk kaynağı: apkovl world + masaüstü profili + kernel
+# (chaos-*/lsblk gibi dosya/komut satırları repo filtresiyle elenir)
+WORLD_PKGS=$(tar -xzOf "$APKVOL" etc/apk/world 2>/dev/null | grep -v -e '^#' -e '^$' | tr '\n' ' ')
+DESK_PKGS=$(grep -v -e '^#' -e '^$' "profiles/packages.$DESKTOP" 2>/dev/null | grep -v -e '^chaos-' -e '^lsblk$' | tr '\n' ' ')
+FETCH_LIST=""
+for p in alpine-base linux-lts linux-virt linux-firmware-none $WORLD_PKGS $DESK_PKGS; do
+  if apk search -q -x "$p" 2>/dev/null | grep -qx "$p"; then
+    FETCH_LIST="$FETCH_LIST $p"
+  else
+    echo "(uyarı: $p repoda yok, atlanıyor)"
+  fi
+done
+echo "[iso] repo paketleri:$FETCH_LIST"
 apk fetch --recursive -o "$ADIR" $FETCH_LIST 2>&1 | tail -n 3
 for p in $FETCH_LIST; do ls "$ADIR/$p"-*.apk >/dev/null 2>&1 || { echo "HATA: $p ISO reposunda yok"; exit 1; }; done
 apk index --description "CHA OS $VERSION" --rewrite-arch "$ARCH" --index "$ADIR/APKINDEX.tar.gz" --output "$ADIR/APKINDEX.tar.gz" "$ADIR"/*.apk 2>&1 | tail -n 2

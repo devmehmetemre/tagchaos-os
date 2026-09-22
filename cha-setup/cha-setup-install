@@ -45,18 +45,19 @@ if [ -n "$NET_IF" ]; then
   tail -n 2 /tmp/cha-dhcp.log 2>/dev/null || true
 else
   echo "(uyarı: ağ arayüzü yok; görünenler: $(ls /sys/class/net 2>/dev/null | tr '\n' ' '))"
-  echo "NOT: masaüstü kurulumu ağ ister (VirtualBox: Ağ > NAT + 'Kablo bağlı')"
+  echo "NOT: ag arayuzu yok; kurulum cevrimdisi suruyor (sonrasi icin VB Ag>NAT ac)"
 fi
 
 echo "[install] disk hazırlanıyor: $DISK"
 apk add --no-cache dosfstools e2fsprogs parted 2>&1 | tail -n 2
 
-# GPT: 512M EFI + rest root (basit, güvenilir)
+# GPT: 1MB bios-boot (BIOS) + 512M EFI + rest root
 parted -s "$DISK" mklabel gpt \
-  mkpart ESP fat32 1MiB 513MiB set 1 esp on \
-  mkpart primary ext4 513MiB 100%
-EFI_PART="${DISK}1"; ROOT_PART="${DISK}2"
-case "$DISK" in *nvme*|*mmcblk*) EFI_PART="${DISK}p1"; ROOT_PART="${DISK}p2";; esac
+  mkpart BIOS 1MiB 2MiB set 1 bios_grub on \
+  mkpart ESP fat32 2MiB 514MiB set 2 esp on \
+  mkpart primary ext4 514MiB 100%
+EFI_PART="${DISK}2"; ROOT_PART="${DISK}3"
+case "$DISK" in *nvme*|*mmcblk*) EFI_PART="${DISK}p2"; ROOT_PART="${DISK}p3";; esac
 
 echo "[install] bölüm tablosu çekirdeğe okutuluyor (partprobe+mdev)..."
 partprobe "$DISK" 2>/dev/null || partx -u "$DISK" 2>/dev/null || true
@@ -85,14 +86,18 @@ for m in /media/*; do
 done
 mkdir -p /mnt/chaos/etc/apk/keys
 cp /etc/apk/keys/* /mnt/chaos/etc/apk/keys/ 2>/dev/null || true
+KV_LIVE=$(ls /usr/lib/modules 2>/dev/null | head -n1 || true)
+case "$KV_LIVE" in *-virt) KERN_PKG="linux-virt";; *) KERN_PKG="linux-lts";; esac
+case "$(uname -m)" in x86_64|x86) GRUBBIOS="grub-bios";; *) GRUBBIOS="";; esac
 if [ -n "$LOCALREPO" ]; then
   echo "[install] yerel repo: $LOCALREPO"
+  # shellcheck disable=SC2086
   apk add --no-cache --repository "$LOCALREPO" \
-    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi $GRUBBIOS sudo shadow tzdata musl-locales util-linux $KERN_PKG linux-firmware-none >/dev/null
 else
   echo "(uyarı: yerel repo bulunamadı, ağdan kuruluyor)"
   apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
-    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales >/dev/null
+    --root /mnt/chaos --initdb alpine-base openrc e2fsprogs dosfstools grub grub-efi sudo shadow tzdata musl-locales util-linux linux-lts >/dev/null
 fi
 
 for d in dev proc sys; do mount --bind "/$d" "/mnt/chaos/$d"; done
@@ -128,15 +133,27 @@ EOF
 # masaüstü paketleri
 case "$DESKTOP" in
   xfce) PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter networkmanager firefox";;
-  lxqt) PKGS="lxqt sddm networkmanager firefox";;
+  lxqt) PKGS="lxqt-desktop sddm networkmanager firefox";;
   sway) PKGS="sway foot waybar wofi networkmanager firefox";;
   none) PKGS="openssh";;
   *) PKGS="openssh";;
 esac
+# profil dosyasi varsa onu kullan (tek kaynak: /usr/share/chaos/packages.*)
+if [ -f "/usr/share/chaos/packages.$DESKTOP" ]; then
+  PKGS=$(grep -v -e '^#' -e '^$' "/usr/share/chaos/packages.$DESKTOP" | grep -v -e '^chaos-' -e '^lsblk$' | tr '\n' ' ')
+fi
 echo "[install] masaüstü: $DESKTOP -> $PKGS"
+# hedef repo dosyasi: yerel medya varsa bagla (cevrimdisi), yoksa ag kullan
+if [ -n "$LOCALREPO" ]; then
+  mkdir -p /mnt/chaos/media/cdrom-apks
+  mount --bind "$LOCALREPO" /mnt/chaos/media/cdrom-apks
+  echo "/media/cdrom-apks" > /mnt/chaos/etc/apk/repositories
+else
+  printf '%s\n' "https://dl-cdn.alpinelinux.org/alpine/v3.22/main" "https://dl-cdn.alpinelinux.org/alpine/v3.22/community" > /mnt/chaos/etc/apk/repositories
+fi
 chroot /mnt/chaos apk add --no-cache $PKGS >/dev/null || {
-  echo "HATA: paketler indirilemedi (ağ yok?). Masaüstü kurulumu ağ ister:"
-  echo "  VirtualBox: Ayarlar > Ağ > NAT + 'Kablo bağlı' açık olmalı."
+  echo "HATA: masaustu paketleri kurulamadi."
+  echo "  Yerel repo yoksa ag gerekir (VB: Ag > NAT + Kablo bagli)."
   exit 1
 }
 chroot /mnt/chaos rc-update add dbus default 2>/dev/null || true
@@ -165,7 +182,15 @@ cat > /mnt/chaos/etc/fstab <<EOF
 UUID=$ROOT_UUID / ext4 defaults 0 1
 UUID=$EFI_UUID /boot/efi vfat defaults 0 2
 EOF
-chroot /mnt/chaos grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=CHAOS --removable
+# kurulum bitince hedef remote repoya doner (canli medya reboot sonrasi yok)
+printf '%s\n' "https://dl-cdn.alpinelinux.org/alpine/v3.22/main" "https://dl-cdn.alpinelinux.org/alpine/v3.22/community" > /mnt/chaos/etc/apk/repositories
+ARCHM=$(uname -m)
+if [ "$ARCHM" = "aarch64" ]; then
+  chroot /mnt/chaos grub-install --target=arm64-efi --efi-directory=/boot/efi --bootloader-id=CHAOS --removable
+else
+  chroot /mnt/chaos grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=CHAOS --removable
+  chroot /mnt/chaos grub-install --target=i386-pc --bootloader-id=CHAOS --recheck "$DISK"
+fi
 chroot /mnt/chaos grub-mkconfig -o /boot/grub/grub.cfg
 
 umount -R /mnt/chaos 2>/dev/null || umount /mnt/chaos/boot/efi; umount /mnt/chaos || true

@@ -32,6 +32,8 @@ mkdir -p "$TMP/etc/skel/.config/sway"
 cp profiles/desktop/sway/config "$TMP/etc/skel/.config/sway/config" 2>/dev/null || true
 cp branding/lightdm/lightdm-gtk-greeter.conf "$TMP/etc/lightdm/lightdm-gtk-greeter.conf" 2>/dev/null || true
 cp branding/sddm/sddm.conf "$TMP/etc/sddm.conf.d/chaos.conf" 2>/dev/null || true
+# masaüstü paket listeleri de gömülür (backend tek kaynaktan okur)
+cp profiles/packages.live profiles/packages.xfce profiles/packages.lxqt profiles/packages.sway profiles/packages.none "$TMP/usr/share/chaos/" 2>/dev/null || true
 # live oturumda ilk konsolda cha-setup önerisi
 cat > "$TMP/etc/profile.d/chaos-live.sh" <<EOF
 # CHA OS live

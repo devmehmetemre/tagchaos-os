@@ -8,8 +8,7 @@ tzdata
 musl-locales
 dialog
 networkmanager
-lxqt
-lxqt-session
+lxqt-desktop
 sddm
 firefox
 chaos-icons

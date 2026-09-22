@@ -7,7 +7,7 @@ shadow
 tzdata
 musl-locales
 dialog
-lsblk
+util-linux
 networkmanager
 xfce4
 xfce4-terminal
