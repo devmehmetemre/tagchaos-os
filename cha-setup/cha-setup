@@ -29,11 +29,27 @@ ask_lang() {
 }
 
 ask_timezone() {
-  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Zaman dilimi (örn: Europe/Istanbul):" 8 50 "Europe/Istanbul" 2>&1 >/dev/tty || exit 1
+  $DIALOG_BIN --backtitle "$BACKTITLE" --menu "Zaman dilimi sec:" 17 55 10 \
+    "Europe/Istanbul" "Turkiye" \
+    "Europe/London" "Ingiltere" \
+    "Europe/Berlin" "Almanya" \
+    "Europe/Paris" "Fransa" \
+    "Europe/Moscow" "Rusya" \
+    "America/New_York" "ABD Dogu" \
+    "America/Los_Angeles" "ABD Bati" \
+    "Asia/Dubai" "BAE" \
+    "Asia/Tokyo" "Japonya" \
+    "UTC" "UTC" 2>&1 >/dev/tty || exit 1
 }
 
 ask_keymap() {
-  $DIALOG_BIN --backtitle "$BACKTITLE" --inputbox "Klavye düzeni (örn: trq, us, de):" 8 50 "trq" 2>&1 >/dev/tty || exit 1
+  $DIALOG_BIN --backtitle "$BACKTITLE" --menu "Klavye duzeni sec:" 14 50 6 \
+    "trq" "Turkce Q" \
+    "trf" "Turkce F" \
+    "us" "Ingilizce (US)" \
+    "uk" "Ingilizce (UK)" \
+    "de" "Almanca" \
+    "fr" "Fransizca" 2>&1 >/dev/tty || exit 1
 }
 
 ask_hostname() {
@@ -65,8 +81,8 @@ ask_users() {
 ask_pw() {
   _label="$1"; _out="$2"; _pw1=""; _pw2="x"
   while [ "$_pw1" != "$_pw2" ] || [ -z "$_pw1" ]; do
-    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "YENİ $_label şifresini BELİRLE:" 8 55 2>&1 >/dev/tty > /tmp/.pw1 || exit 1
-    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "Aynı şifreyi tekrar yaz (doğrula):" 8 55 2>&1 >/dev/tty > /tmp/.pw2 || exit 1
+    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "YENI $_label sifresini BELIRLE:" 8 55 >/dev/tty 2>/tmp/.pw1 || exit 1
+    $DIALOG_BIN --backtitle "$BACKTITLE" --passwordbox "Ayni sifreyi tekrar yaz (dogrula):" 8 55 >/dev/tty 2>/tmp/.pw2 || exit 1
     _pw1=$(cat /tmp/.pw1); _pw2=$(cat /tmp/.pw2)
     if [ "$_pw1" != "$_pw2" ]; then
       $DIALOG_BIN --backtitle "$BACKTITLE" --msgbox "Şifreler uyuşmadı, tekrar dene." 6 45
